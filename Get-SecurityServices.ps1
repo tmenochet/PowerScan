@@ -2,13 +2,13 @@ function Get-SecurityServices {
 <#
 .SYNOPSIS
     Detect security services on remote computer.
-	Privileges required: low
+    Privileges required: low
 
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
     Get-SecurityServices checks if Windows services corresponding to security products are running on a remote host.
-	It is a slightly modified version of PingCastle's AntivirusScanner by @mysmartlogon.
+    It is a slightly modified version of PingCastle's AntivirusScanner by @mysmartlogon.
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -23,13 +23,13 @@ function Get-SecurityServices {
         $ComputerName = $env:COMPUTERNAME
     )
 
-	$services = [PingCastle.TestAV]::RunTestAV($ComputerName)
-	if ($services) {
-		$obj = New-Object -TypeName psobject
-		$obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-		$obj | Add-Member -MemberType NoteProperty -Name 'ProtectionServices' -Value $services
-		Write-Output $obj
-	}
+    $services = [PingCastle.TestAV]::RunTestAV($ComputerName)
+    if ($services) {
+        $obj = New-Object -TypeName psobject
+        $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+        $obj | Add-Member -MemberType NoteProperty -Name 'ProtectionServices' -Value $services
+        Write-Output $obj
+    }
 }
 
 $source = @"
@@ -49,14 +49,14 @@ namespace PingCastle
     {
 
       [DllImport("advapi32.dll", SetLastError = true)]
-		static extern bool LookupAccountName(
-			string lpSystemName,
-			string lpAccountName,
-			[MarshalAs(UnmanagedType.LPArray)] byte[] Sid,
-			ref uint cbSid,
-			StringBuilder ReferencedDomainName,
-			ref uint cchReferencedDomainName,
-			out SID_NAME_USE peUse);
+        static extern bool LookupAccountName(
+            string lpSystemName,
+            string lpAccountName,
+            [MarshalAs(UnmanagedType.LPArray)] byte[] Sid,
+            ref uint cbSid,
+            StringBuilder ReferencedDomainName,
+            ref uint cchReferencedDomainName,
+            out SID_NAME_USE peUse);
 
 
         const int NO_ERROR = 0;
@@ -76,147 +76,147 @@ namespace PingCastle
             SidTypeComputer
         }
 
-		public static SecurityIdentifier ConvertNameToSID(string accountName, string server)
-		{
-			byte [] Sid = null;
-			uint cbSid = 0;
-			StringBuilder referencedDomainName = new StringBuilder();
-			uint cchReferencedDomainName = (uint)referencedDomainName.Capacity;
-			SID_NAME_USE sidUse;
+        public static SecurityIdentifier ConvertNameToSID(string accountName, string server)
+        {
+            byte [] Sid = null;
+            uint cbSid = 0;
+            StringBuilder referencedDomainName = new StringBuilder();
+            uint cchReferencedDomainName = (uint)referencedDomainName.Capacity;
+            SID_NAME_USE sidUse;
 
-			int err = NO_ERROR;
-			if (LookupAccountName(server, accountName, Sid, ref cbSid, referencedDomainName, ref cchReferencedDomainName, out sidUse))
-			{
-				return new SecurityIdentifier(Sid, 0);
-			}
-			else
-			{
-				err = Marshal.GetLastWin32Error();
-				if (err == ERROR_INSUFFICIENT_BUFFER || err == ERROR_INVALID_FLAGS)
-				{
-					Sid = new byte[cbSid];
-					referencedDomainName.EnsureCapacity((int)cchReferencedDomainName);
-					err = NO_ERROR;
-					if (LookupAccountName(null, accountName, Sid, ref cbSid, referencedDomainName, ref cchReferencedDomainName, out sidUse))
-					{
-						return new SecurityIdentifier(Sid, 0);
-					}
-				}
-			}
-			return null;
-		}
+            int err = NO_ERROR;
+            if (LookupAccountName(server, accountName, Sid, ref cbSid, referencedDomainName, ref cchReferencedDomainName, out sidUse))
+            {
+                return new SecurityIdentifier(Sid, 0);
+            }
+            else
+            {
+                err = Marshal.GetLastWin32Error();
+                if (err == ERROR_INSUFFICIENT_BUFFER || err == ERROR_INVALID_FLAGS)
+                {
+                    Sid = new byte[cbSid];
+                    referencedDomainName.EnsureCapacity((int)cchReferencedDomainName);
+                    err = NO_ERROR;
+                    if (LookupAccountName(null, accountName, Sid, ref cbSid, referencedDomainName, ref cchReferencedDomainName, out sidUse))
+                    {
+                        return new SecurityIdentifier(Sid, 0);
+                    }
+                }
+            }
+            return null;
+        }
 
         static Dictionary<string, string> AVReference = new Dictionary<string, string> {
-			{"avast! Antivirus", "Avast"},
-			{"aswBcc", "Avast"},
-			{"Avast Business Console Client Antivirus Service", "Avast"},
+            {"avast! Antivirus", "Avast"},
+            {"aswBcc", "Avast"},
+            {"Avast Business Console Client Antivirus Service", "Avast"},
 
-			{"epag", "Bitdefender Endpoint Agent"},
-			{"EPIntegrationService", "Bitdefender Endpoint Integration Service"},
-			{"EPProtectedService", "Bitdefender Endpoint Protected Service"},
-			{"epredline", "Bitdefender Endpoint Redline Services"},
-			{"EPSecurityService", "Bitdefender Endpoint Security Service"},
-			{"EPUpdateService", "Bitdefender Endpoint Update Service"},
+            {"epag", "Bitdefender Endpoint Agent"},
+            {"EPIntegrationService", "Bitdefender Endpoint Integration Service"},
+            {"EPProtectedService", "Bitdefender Endpoint Protected Service"},
+            {"epredline", "Bitdefender Endpoint Redline Services"},
+            {"EPSecurityService", "Bitdefender Endpoint Security Service"},
+            {"EPUpdateService", "Bitdefender Endpoint Update Service"},
 
-			{"CSFalconService", "CrowdStrike Falcon Sensor Service"}, 
+            {"CSFalconService", "CrowdStrike Falcon Sensor Service"}, 
 
-			{"CylanceSvc", "Cylance"}, 
+            {"CylanceSvc", "Cylance"}, 
 
-			{"epfw", "ESET"}, 
-			{"epfwlwf", "ESET"}, 
-			{"epfwwfp" , "ESET"}, 
+            {"epfw", "ESET"}, 
+            {"epfwlwf", "ESET"}, 
+            {"epfwwfp" , "ESET"}, 
 
-			{"xagt" , "FireEye Endpoint Agent"}, 
+            {"xagt" , "FireEye Endpoint Agent"}, 
 
-			{"fgprocsvc" , "ForeScout Remote Inspection Service"}, 
-			{"SecureConnector" , "ForeScout SecureConnector Service"}, 
+            {"fgprocsvc" , "ForeScout Remote Inspection Service"}, 
+            {"SecureConnector" , "ForeScout SecureConnector Service"}, 
 
-			{"fsdevcon", "F-Secure"},
-			{"FSDFWD", "F-Secure"},
-			{"F-Secure Network Request Broker", "F-Secure"},
-			{"FSMA", "F-Secure"},
-			{"FSORSPClient", "F-Secure"},
+            {"fsdevcon", "F-Secure"},
+            {"FSDFWD", "F-Secure"},
+            {"F-Secure Network Request Broker", "F-Secure"},
+            {"FSMA", "F-Secure"},
+            {"FSORSPClient", "F-Secure"},
 
-			{"klif", "Kasperksky"},
-			{"klim", "Kasperksky"},
-			{"kltdi", "Kasperksky"},
-			{"kavfsslp", "Kasperksky"},
-			{"KAVFSGT", "Kasperksky"},
-			{"KAVFS", "Kasperksky"},
-			
-			{"enterceptagent", "MacAfee"},
-			{"macmnsvc", "MacAfee Agent Common Services"},
-			{"masvc", "MacAfee Agent Service"},
-			{"McAfeeFramework", "MacAfee Agent Backwards Compatiblity Service"},
-			{"McAfeeEngineService", "MacAfee"},
-			{"mfefire", "MacAfee Firewall Core Service"},
-			{"mfemms", "MacAfee Service Controller"},
-			{"mfevtp", "MacAfee Validation Trust Protection Service"},
-			{"mfewc", "MacAfee Endpoint Security Web Control Service"},
+            {"klif", "Kasperksky"},
+            {"klim", "Kasperksky"},
+            {"kltdi", "Kasperksky"},
+            {"kavfsslp", "Kasperksky"},
+            {"KAVFSGT", "Kasperksky"},
+            {"KAVFS", "Kasperksky"},
+            
+            {"enterceptagent", "MacAfee"},
+            {"macmnsvc", "MacAfee Agent Common Services"},
+            {"masvc", "MacAfee Agent Service"},
+            {"McAfeeFramework", "MacAfee Agent Backwards Compatiblity Service"},
+            {"McAfeeEngineService", "MacAfee"},
+            {"mfefire", "MacAfee Firewall Core Service"},
+            {"mfemms", "MacAfee Service Controller"},
+            {"mfevtp", "MacAfee Validation Trust Protection Service"},
+            {"mfewc", "MacAfee Endpoint Security Web Control Service"},
 
-			{"cyverak", "PaloAlto Traps KernelDriver"},
-			{"cyvrmtgn", "PaloAlto Traps KernelDriver"},
-			{"cyvrfsfd", "PaloAlto Traps FileSystemDriver"},
-			{"cyserver", "PaloAlto Traps Reporting Service"},
-			{"CyveraService", "PaloAlto Traps"},
-			{"tlaservice", "PaloAlto Traps Local Analysis Service"},
-			{"twdservice", "PaloAlto Traps Watchdog Service"},
-			
-			{"SentinelAgent", "SentinelOne"},
-			{"SentinelHelperService", "SentinelOne"},
-			{"SentinelStaticEngine ", "SentinelIbe Static Service"},
-			{"LogProcessorService ", "SentinelOne Agent Log Processing Service"},
+            {"cyverak", "PaloAlto Traps KernelDriver"},
+            {"cyvrmtgn", "PaloAlto Traps KernelDriver"},
+            {"cyvrfsfd", "PaloAlto Traps FileSystemDriver"},
+            {"cyserver", "PaloAlto Traps Reporting Service"},
+            {"CyveraService", "PaloAlto Traps"},
+            {"tlaservice", "PaloAlto Traps Local Analysis Service"},
+            {"twdservice", "PaloAlto Traps Watchdog Service"},
+            
+            {"SentinelAgent", "SentinelOne"},
+            {"SentinelHelperService", "SentinelOne"},
+            {"SentinelStaticEngine ", "SentinelIbe Static Service"},
+            {"LogProcessorService ", "SentinelOne Agent Log Processing Service"},
 
-			{"sophosssp", "Sophos"},
-			{"Sophos Agent", "Sophos"},
-			{"Sophos AutoUpdate Service", "Sophos"},
-			{"Sophos Clean Service", "Sophos"},
-			{"Sophos Device Control Service", "Sophos"},
-			{"Sophos File Scanner Service", "Sophos"},
-			{"Sophos Health Service", "Sophos"},
-			{"Sophos MCS Agent", "Sophos"},
-			{"Sophos MCS Client", "Sophos"},
-			{"Sophos Message Router", "Sophos"},
-			{"Sophos Safestore Service", "Sophos"},
-			{"Sophos System Protection Service", "Sophos"},
-			{"Sophos Web Control Service", "Sophos"},
-			{"sophossps", "Sophos"},
+            {"sophosssp", "Sophos"},
+            {"Sophos Agent", "Sophos"},
+            {"Sophos AutoUpdate Service", "Sophos"},
+            {"Sophos Clean Service", "Sophos"},
+            {"Sophos Device Control Service", "Sophos"},
+            {"Sophos File Scanner Service", "Sophos"},
+            {"Sophos Health Service", "Sophos"},
+            {"Sophos MCS Agent", "Sophos"},
+            {"Sophos MCS Client", "Sophos"},
+            {"Sophos Message Router", "Sophos"},
+            {"Sophos Safestore Service", "Sophos"},
+            {"Sophos System Protection Service", "Sophos"},
+            {"Sophos Web Control Service", "Sophos"},
+            {"sophossps", "Sophos"},
 
-			{"SepMasterService" , "Symantec Endpoint Protection"},
-			{"SNAC" , "Symantec Network Access Control"},
-			{"Symantec System Recovery" , "Symantec System Recovery"},
-			{"Smcinst", "Symantec Connect"},
-			{"SmcService", "Symantec Connect"},
-			
-			{"Sysmon", "Sysmon"},
+            {"SepMasterService" , "Symantec Endpoint Protection"},
+            {"SNAC" , "Symantec Network Access Control"},
+            {"Symantec System Recovery" , "Symantec System Recovery"},
+            {"Smcinst", "Symantec Connect"},
+            {"SmcService", "Symantec Connect"},
+            
+            {"Sysmon", "Sysmon"},
 
-			{"AMSP", "Trend"},
-			{"tmcomm", "Trend"},
-			{"tmactmon", "Trend"},
-			{"tmevtmgr", "Trend"},
-			{"ntrtscan", "Trend Micro Worry Free Business"},
+            {"AMSP", "Trend"},
+            {"tmcomm", "Trend"},
+            {"tmactmon", "Trend"},
+            {"tmevtmgr", "Trend"},
+            {"ntrtscan", "Trend Micro Worry Free Business"},
 
-			{"WRSVC", "Webroot"},
+            {"WRSVC", "Webroot"},
 
-			{"WinDefend", "Windows Defender Antivirus Service"},
-			{"Sense ", "Windows Defender Advanced Threat Protection Service"},
-			{"WdNisSvc ", "Windows Defender Antivirus Network Inspection Service"},
-		};
+            {"WinDefend", "Windows Defender Antivirus Service"},
+            {"Sense ", "Windows Defender Advanced Threat Protection Service"},
+            {"WdNisSvc ", "Windows Defender Antivirus Network Inspection Service"},
+        };
 
         public static List<string> RunTestAV(string computer)
-		{
-		    List<string> stringAV = new List<string>();
-			foreach (var entry in AVReference)
-			{
-				if (ConvertNameToSID("NT Service\\" + entry.Key, computer) != null)
-				{
-					stringAV.Add(entry.Value + " (" + entry.Key + ")");
-				}
-			}
-			if (stringAV.Count == 0) {
-			    stringAV.Add("NOT_FOUND");
-		    }
-			return stringAV;
+        {
+            List<string> stringAV = new List<string>();
+            foreach (var entry in AVReference)
+            {
+                if (ConvertNameToSID("NT Service\\" + entry.Key, computer) != null)
+                {
+                    stringAV.Add(entry.Value + " (" + entry.Key + ")");
+                }
+            }
+            if (stringAV.Count == 0) {
+                stringAV.Add("NOT_FOUND");
+            }
+            return stringAV;
         }
     }
 }

@@ -41,7 +41,7 @@ function Invoke-PowerScan {
 
 .EXAMPLE
     PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SecurityServices} -ScriptParameters @{'Credential' = $cred} -DomainComputers ADATUM.CORP -Credential $cred
+    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-PowershellHistory} -ScriptParameters @{'Download'=$True; 'Credential'=$cred} -DomainComputers ADATUM.CORP -Credential $cred
 #>
 
     [CmdletBinding()]

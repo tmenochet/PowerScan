@@ -1,7 +1,7 @@
 function Get-PowershellHistory {
 <#
 .SYNOPSIS
-    Get Powershell history files from a remote computer.
+    Get Powershell history from a remote computer.
     Privileges required: high
 
     Author: Timothée MENOCHET (@_tmenochet)
@@ -36,17 +36,19 @@ function Get-PowershellHistory {
         $Credential = [System.Management.Automation.PSCredential]::Empty
     )
 
-    $files = New-Object System.Collections.ArrayList
     $HKCU = 2147483651
     $SIDS = Invoke-WmiMethod -Class 'StdRegProv' -Name 'EnumKey' -ArgumentList $HKCU,'' -ComputerName $ComputerName -Credential $Credential | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
     
     foreach ($SID in $SIDs) {
-        $mappedSID = GetMappedSID -SID $SID -ComputerName $ComputerName -Credential $Credential
+        $mappedSID = Get-MappedSID -SID $SID -ComputerName $ComputerName -Credential $Credential
         $username = Split-Path -Leaf (Split-Path -Leaf ($mappedSID))
         $filter  = "Drive='C:' AND Path='\\Users\\$username\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\' AND FileName='ConsoleHost_history' AND Extension='txt'"
         $file = Get-WMIObject -Class CIM_LogicalFile -Filter $filter -ComputerName $ComputerName -Credential $Credential
         if ($file.Name) {
-            $files.add($file.name) | Out-Null
+            $obj = New-Object -TypeName psobject
+            $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+            $obj | Add-Member -MemberType NoteProperty -Name 'ConsoleHost_history' -Value $file.Name
+            Write-Output $obj
             if ($Download) {
                 $filepath = "$PWD\$ComputerName"
                 New-Item -ItemType Directory -Force -Path $filepath | Out-Null
@@ -54,17 +56,9 @@ function Get-PowershellHistory {
             }
         }
     }
-
-    if ($files.Count -gt 0) {
-        $obj = New-Object -TypeName psobject
-        $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-        $obj | Add-Member -MemberType NoteProperty -Name 'ConsoleHost_history' -Value $files
-    }
-
-    Write-Output $obj
 }
 
-function Local:GetMappedSID {
+function Local:Get-MappedSID {
     Param (
         [ValidateNotNullOrEmpty()]
         [String]

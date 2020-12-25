@@ -23,9 +23,19 @@ function Get-OxidBindings {
         $ComputerName = $env:COMPUTERNAME
     )
 
-    $oxidResolver = New-Object PingCastle.OxidBindings
-    $oxidBindings = New-Object Collections.Generic.List[string]
-    $null = $oxidResolver.ServerAlive2($ComputerName, [ref]$oxidBindings)
+    $oxidBindings = New-Object System.Collections.ArrayList
+    $success = $False
+    $retry = 0
+    while (-not $success -and $retry -lt 2) {
+        try {
+            $oxidResolver = New-Object PingCastle.OxidBindings
+            $null = $oxidResolver.ServerAlive2($ComputerName, [ref]$oxidBindings)
+            $success = $True
+        }
+        catch {
+            $retry++
+        }
+    }
     if ($oxidBindings) {
         $obj = New-Object -TypeName psobject
         $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
@@ -99,13 +109,6 @@ namespace PingCastle
         {
             public UInt16 MajorVersion;
             public UInt16 MinorVersion;
-        }
-
-        public List<string> ServerAlive2Ps1(string server)
-        {
-            List<string> stringBindings;
-            Int32 a = ServerAlive2(server, out stringBindings);
-            return stringBindings;
         }
 
         public Int32 ServerAlive2(string server, out List<string> stringBindings)

@@ -37,17 +37,17 @@ function Invoke-PowerScan {
     Disables CSV output.
 
 .PARAMETER OutputFile
-    Specifies CSV output file path, defaults to '.\ModuleName.csv'
+    Specifies CSV output file path, defaults to '.\$ModuleName.csv'
 
 .EXAMPLE
     PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-OxidBindings} -ComputerList 192.168.1.0/24
 
 .EXAMPLE
-    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SpoolerStatus} -DomainControllers ADATUM.CORP -NoOutput
+    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-NetSession} -ScriptParameters @{'Identity'='john.doe'} -DomainComputers ADATUM.CORP -NoOutput
 
 .EXAMPLE
     PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-PowershellHistory} -ScriptParameters @{'Download'=$True; 'Credential'=$cred} -DomainComputers ADATUM.CORP -Credential $cred
+    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-LogonEvent} -ScriptParameters @{'Credential'=$cred; 'Identity'='john.doe'} -DomainControllers ADATUM.CORP -Credential $cred
 #>
 
     [CmdletBinding()]

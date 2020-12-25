@@ -18,6 +18,9 @@ function Get-SecurityStatus {
 .PARAMETER Protocol
     Specifies the protocol to use.
 
+.PARAMETER Ping
+    Ensures host is up before run.
+
 .EXAMPLE
     PS C:\> Get-SecurityStatus -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
@@ -34,8 +37,15 @@ function Get-SecurityStatus {
 
         [ValidateSet('Dcom', 'Wsman')]
         [String]
-        $Protocol = 'Dcom'
+        $Protocol = 'Dcom',
+
+        [Switch]
+        $Ping
     )
+
+    if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
+        return
+    }
 
     $option = New-CimSessionOption -Protocol Dcom
     if ($Credential.Username) {

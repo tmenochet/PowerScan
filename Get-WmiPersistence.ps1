@@ -15,6 +15,9 @@ function Get-WmiPersistence {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
+.PARAMETER Ping
+    Ensures host is up before run.
+
 .EXAMPLE
     PS C:\> Get-WmiPersistence -Download -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
@@ -27,8 +30,15 @@ function Get-WmiPersistence {
         [ValidateNotNullOrEmpty()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty
+        $Credential = [System.Management.Automation.PSCredential]::Empty,
+
+        [Switch]
+        $Ping
     )
+
+    if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
+        return
+    }
 
     Get-WmiInstance -Class '__FilterToConsumerBinding' -ComputerName $ComputerName -Credential $Credential | ForEach { 
         if ($_.Consumer -like 'CommandLineEventConsumer*' -or $_.Consumer -like 'ActiveScriptEventConsumer*') {

@@ -18,6 +18,9 @@ function Get-PowershellHistory {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
+.PARAMETER Ping
+    Ensures host is up before run.
+
 .EXAMPLE
     PS C:\> Get-PowershellHistory -Download -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
@@ -33,8 +36,15 @@ function Get-PowershellHistory {
         [ValidateNotNullOrEmpty()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty
+        $Credential = [System.Management.Automation.PSCredential]::Empty,
+
+        [Switch]
+        $Ping
     )
+
+    if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
+        return
+    }
 
     $HKCU = 2147483651
     $SIDS = Invoke-WmiMethod -Class 'StdRegProv' -Name 'EnumKey' -ArgumentList $HKCU,'' -ComputerName $ComputerName -Credential $Credential | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}

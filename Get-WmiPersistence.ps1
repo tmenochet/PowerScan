@@ -1,3 +1,5 @@
+#requires -version 3
+
 function Get-WmiPersistence {
 <#
 .SYNOPSIS
@@ -18,6 +20,9 @@ function Get-WmiPersistence {
 .PARAMETER Ping
     Ensures host is up before run.
 
+.PARAMETER Protocol
+    Specifies the protocol to use.
+
 .EXAMPLE
     PS C:\> Get-WmiPersistence -Download -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
@@ -33,22 +38,42 @@ function Get-WmiPersistence {
         $Credential = [System.Management.Automation.PSCredential]::Empty,
 
         [Switch]
-        $Ping
+        $Ping,
+
+        [ValidateSet('Dcom', 'Wsman')]
+        [String]
+        $Protocol = 'Dcom'
     )
 
-    if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-        return
+    BEGIN {
+        if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
+            return
+        }
+
+        $cimOption = New-CimSessionOption -Protocol $Protocol
+        if ($Credential.Username) {
+            $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop
+        }
+        else {
+            $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop
+        }
     }
 
-    Get-WmiInstance -Class '__FilterToConsumerBinding' -ComputerName $ComputerName -Credential $Credential | ForEach { 
-        if ($_.Consumer -like 'CommandLineEventConsumer*' -or $_.Consumer -like 'ActiveScriptEventConsumer*') {
-            $obj = New-Object -TypeName psobject
-            $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-            $obj | Add-Member -MemberType NoteProperty -Name 'Namespace' -Value $_.__NAMESPACE
-            $obj | Add-Member -MemberType NoteProperty -Name 'EventConsumer' -Value $_.Consumer
-            $obj | Add-Member -MemberType NoteProperty -Name 'EventFilter' -Value $_.Filter
-            Write-Output $obj
+    PROCESS {
+        Get-WmiInstance -Class '__FilterToConsumerBinding' -CimSession $cimSession | ForEach { 
+            if ($_.Consumer -like 'CommandLineEventConsumer*' -or $_.Consumer -like 'ActiveScriptEventConsumer*') {
+                $obj = New-Object -TypeName psobject
+                $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $obj | Add-Member -MemberType NoteProperty -Name 'Class' -Value $_.CimClass
+                $obj | Add-Member -MemberType NoteProperty -Name 'EventConsumer' -Value $_.Consumer
+                $obj | Add-Member -MemberType NoteProperty -Name 'EventFilter' -Value $_.Filter
+                Write-Output $obj
+            }
         }
+    }
+
+    END {
+        Remove-CimSession -CimSession $cimSession
     }
 }
 
@@ -62,18 +87,13 @@ function Local:Get-WmiInstance {
         [String]
         $Class,
 
-        [ValidateNotNullOrEmpty()]
-        [String]
-        $ComputerName,
-
-        [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty
+        [Parameter(Mandatory = $True)]
+        [CimSession]
+        $CimSession
     )
 
-    Get-WmiObject -Namespace $Namespace -Class $Class -ComputerName $ComputerName -Credential $Credential
-    Get-WmiObject -Namespace $Namespace -Class '__Namespace' -ComputerName $ComputerName -Credential $Credential | % {
-        Get-WmiInstance -Namespace "$Namespace\$($_.Name)" -Class $Class -ComputerName $ComputerName -Credential $Credential
+    Get-CimInstance -Namespace $Namespace -Class $Class -CimSession $CimSession
+    Get-CimInstance -Namespace $Namespace -Class '__Namespace' -CimSession $CimSession | % {
+        Get-CimInstance -Namespace "$Namespace\$($_.Name)" -Class $Class -CimSession $CimSession
     }
 }

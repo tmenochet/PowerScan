@@ -3,7 +3,7 @@
 function Get-WmiPersistence {
 <#
 .SYNOPSIS
-    Get WMI persistences from a remote computer.
+    Get WMI persistences on a remote computer.
     Privileges required: high
 
     Author: Timothée MENOCHET (@_tmenochet)
@@ -27,6 +27,7 @@ function Get-WmiPersistence {
     PS C:\> Get-WmiPersistence -Download -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
+    [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
         [String]
@@ -47,15 +48,22 @@ function Get-WmiPersistence {
 
     BEGIN {
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-            return
+            Write-Verbose "[$ComputerName] Host is unreachable."
+            break
         }
 
         $cimOption = New-CimSessionOption -Protocol $Protocol
-        if ($Credential.Username) {
-            $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop
+        try {
+            if ($Credential.Username) {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            else {
+                $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
         }
-        else {
-            $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            Write-Verbose "[$ComputerName] Failed to establish CIM session."
+            break
         }
     }
 
@@ -92,8 +100,8 @@ function Local:Get-WmiInstance {
         $CimSession
     )
 
-    Get-CimInstance -Namespace $Namespace -Class $Class -CimSession $CimSession
-    Get-CimInstance -Namespace $Namespace -Class '__Namespace' -CimSession $CimSession | % {
-        Get-CimInstance -Namespace "$Namespace\$($_.Name)" -Class $Class -CimSession $CimSession
+    Get-CimInstance -Namespace $Namespace -Class $Class -CimSession $CimSession -Verbose:$false
+    Get-CimInstance -Namespace $Namespace -Class '__Namespace' -CimSession $CimSession -Verbose:$false | % {
+        Get-CimInstance -Namespace "$Namespace\$($_.Name)" -Class $Class -CimSession $CimSession -Verbose:$false
     }
 }

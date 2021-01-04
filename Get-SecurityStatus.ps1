@@ -3,7 +3,7 @@
 function Get-SecurityStatus {
 <#
 .SYNOPSIS
-    Get the status of security softwares on remote computer.
+    Get the status of security softwares on a remote computer.
     Privileges required: high
 
     Author: Timothée MENOCHET (@_tmenochet)
@@ -27,6 +27,7 @@ function Get-SecurityStatus {
     PS C:\> Get-SecurityStatus -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
+    [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
         [String]
@@ -47,15 +48,22 @@ function Get-SecurityStatus {
 
     BEGIN {
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-            return
+            Write-Verbose "[$ComputerName] Host is unreachable."
+            break
         }
 
         $cimOption = New-CimSessionOption -Protocol $Protocol
-        if ($Credential.Username) {
-            $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop
+        try {
+            if ($Credential.Username) {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            else {
+                $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
         }
-        else {
-            $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            Write-Verbose "[$ComputerName] Failed to establish CIM session."
+            break
         }
 
         $obj = "" | Select-Object -Property "ComputerName","AntiVirus-Status","AntiVirus-LastUpdate","AntiMalware-Status","OnAccessProtection-Status","RealTimeProtection-Status","AntiSpyware-Status","BehaviorMonitor-Status","OfficeProtection-Status","NIS-Status","AntiSpyware-Product","AntiVirus-Product","Firewall-Product","Firewall-DomainProfileStatus"
@@ -85,17 +93,17 @@ function Get-SecurityStatus {
         }
 
         # If the host is a workstation, get details about security products
-        $osDetails = Get-CimInstance Win32_OperatingSystem -CimSession $cimSession
+        $osDetails = Get-CimInstance Win32_OperatingSystem -CimSession $cimSession -Verbose:$false
         if ($osDetails.ProductType -eq 1) {
-            $antiSpywareProduct = Get-CimInstance -Namespace ROOT/SecurityCenter2 -Class AntiSpywareProduct -CimSession $cimSession
+            $antiSpywareProduct = Get-CimInstance -Namespace ROOT/SecurityCenter2 -Class AntiSpywareProduct -CimSession $cimSession -Verbose:$false
             if ($antiSpywareProduct -ne $null) {
                 $obj.'AntiSpyware-Product' = $antiSpywareProduct.displayName
             }
-            $antiVirusProduct = Get-CimInstance -Namespace ROOT/SecurityCenter2 -Class AntiVirusProduct -CimSession $cimSession
+            $antiVirusProduct = Get-CimInstance -Namespace ROOT/SecurityCenter2 -Class AntiVirusProduct -CimSession $cimSession -Verbose:$false
             if ($antiVirusProduct -ne $null) {
                 $obj.'AntiVirus-Product' = $antiVirusProduct.displayName
             }
-            $firewallProduct = Get-CimInstance -Namespace ROOT/SecurityCenter2 -Class FirewallProduct -CimSession $cimSession
+            $firewallProduct = Get-CimInstance -Namespace ROOT/SecurityCenter2 -Class FirewallProduct -CimSession $cimSession -Verbose:$false
             if ($firewallProduct -ne $null) {
                 $obj.'Firewall-Product' = $firewallProduct.displayName
             }
@@ -109,7 +117,7 @@ function Get-SecurityStatus {
             hDefKey = $hive
             sSubKeyName = $key
             sValueName = $value
-        } -CimSession $cimSession).uValue
+        } -CimSession $cimSession -Verbose:$false).uValue
         if ($firewallDomainProfileStatus -ne $null) {
             $obj.'Firewall-DomainProfileStatus' = $firewallDomainProfileStatus
         }

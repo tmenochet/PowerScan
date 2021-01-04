@@ -1,3 +1,5 @@
+#requires -version 3
+
 function Get-CimProcess {
 <#
 .SYNOPSIS
@@ -37,6 +39,7 @@ function Get-CimProcess {
     PS C:\> Get-CimProcess -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -ProcessName 'keepass'
 #>
 
+    [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
         [String]
@@ -73,15 +76,22 @@ function Get-CimProcess {
 
     BEGIN {
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-            return
+            Write-Verbose "[$ComputerName] Host is unreachable."
+            break
         }
 
         $cimOption = New-CimSessionOption -Protocol $Protocol
-        if ($Credential.Username) {
-            $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop
+        try {
+            if ($Credential.Username) {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            else {
+                $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
         }
-        else {
-            $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            Write-Verbose "[$ComputerName] Failed to establish CIM session."
+            break
         }
 
         $filter = $null
@@ -104,8 +114,8 @@ function Get-CimProcess {
     }
 
     PROCESS {
-        Get-CimInstance Win32_Process -Filter $filter -CimSession $cimSession | ForEach {
-            $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
+        Get-CimInstance Win32_Process -Filter $filter -CimSession $cimSession -Verbose:$false | ForEach-Object {
+            $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -Verbose:$false
             $owner = $owner.Domain + "\" + $owner.User
             $obj = New-Object -TypeName psobject
             $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName

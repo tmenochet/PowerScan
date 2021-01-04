@@ -1,7 +1,7 @@
 function Get-LogonEvent {
 <#
 .SYNOPSIS
-    Get logon events from a remote computer.
+    Get logon events on a remote computer.
     Privileges required: high
 
     Author: Timothée MENOCHET (@_tmenochet)
@@ -44,7 +44,7 @@ function Get-LogonEvent {
         $Credential = [System.Management.Automation.PSCredential]::Empty
     )
 
-    $results = New-Object System.Collections.ArrayList
+    $events = New-Object System.Collections.ArrayList
     if ($Identity) {
         $filterXPath = "*[System[EventID=4624] and EventData[Data[@Name='TargetUserName']='$Identity']]"
     }
@@ -68,7 +68,7 @@ function Get-LogonEvent {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
-                $results.Add($(ParseLogonEvent($XML))) | Out-Null
+                $events.Add($(ParseLogonEvent($XML))) | Out-Null
             }
         }
     }
@@ -77,49 +77,28 @@ function Get-LogonEvent {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
-                $results.Add($(ParseLogonEvent($XML))) | Out-Null
+                $events.Add($(ParseLogonEvent($XML))) | Out-Null
             }
         }
     }
 
     if ($Identity) {
-        $results | Sort-Object -Property 'IpAddress' -Unique | ForEach-Object {
-            $obj = [pscustomobject] @{
-                ComputerName = $_.Computer
-                UserName = $_.TargetUserName
-                DomainName = $_.TargetDomainName
-                SourceIPAddress = $_.IpAddress
-                SourceHostName = $_.WorkstationName
-                LogonType = $_.LogonType
-                Authentication = $_.AuthenticationPackageName
-            }
-            Write-Output $obj
-        }
+        $events | Sort-Object -Property 'IpAddress' -Unique
     }
     else {
-        $results | Sort-Object -Property 'TargetUserName' -Unique | ForEach-Object {
-            $obj = [pscustomobject] @{
-                ComputerName = $_.Computer
-                UserName = $_.TargetUserName
-                DomainName = $_.TargetDomainName
-                SourceIPAddress = $_.IpAddress
-                SourceHostName = $_.WorkstationName
-                LogonType = $_.LogonType
-                Authentication = $_.AuthenticationPackageName
-            }
-            Write-Output $obj
-        }
+        $events | Sort-Object -Property 'TargetUserName' -Unique
     }
 }
 
-function ParseLogonEvent($XML) {
-    $props = @{}
-    $props.Add('Computer',$XML.Event.System.Computer)
-    $props.Add('TargetUserName', $XML.Event.EventData.Data[5].'#text')
-    $props.Add('TargetDomainName', $XML.Event.EventData.Data[6].'#text')
-    $props.Add('LogonType', $XML.Event.EventData.Data[8].'#text')
-    $props.Add('AuthenticationPackageName', $XML.Event.EventData.Data[10].'#text')
-    $props.Add('WorkstationName', $XML.Event.EventData.Data[11].'#text')
-    $props.Add('IpAddress', $XML.Event.EventData.Data[18].'#text')
-    return New-Object -TypeName psobject -Property $props
+function Local:ParseLogonEvent($XML) {
+    $obj = [pscustomobject] @{
+        ComputerName = $XML.Event.System.Computer                       # Computer
+        UserName = $XML.Event.EventData.Data[5].'#text'                 # TargetUserName
+        DomainName = $XML.Event.EventData.Data[6].'#text'               # TargetDomainName
+        SourceIPAddress = $XML.Event.EventData.Data[18].'#text'         # IpAddress
+        SourceHostName = $XML.Event.EventData.Data[11].'#text'          # WorkstationName
+        LogonType = $XML.Event.EventData.Data[8].'#text'                # LogonType
+        AuthenticationPackage = $XML.Event.EventData.Data[10].'#text'   # AuthenticationPackageName
+    }
+    return $obj
 }

@@ -27,7 +27,7 @@ function Get-CimProcess {
     Specifies one or more processes by process name.
 
 .PARAMETER ExecutablePath
-    Specifies one or more processes by executable path.
+    Specifies one or more processes by binary file path.
 
 .PARAMETER ProcessID
     Specifies one or more processes by process ID (PID).
@@ -99,8 +99,8 @@ function Get-CimProcess {
         if ($ProcessName) {
             $filters.Add("Name LIKE '%$ProcessName%'") | Out-Null
         }
-        if ($ImagePath) {
-            $filters.Add("ExecutablePath LIKE '%$ExecutablePath%'" -Replace "\\","_") | Out-Null
+        if ($ExecutablePath) {
+            $filters.Add($("ExecutablePath LIKE '%$ExecutablePath%'" -Replace "\\","_")) | Out-Null
         }
         if ($ProcessID) {
             $filters.Add("ProcessId='$ProcessID'") | Out-Null

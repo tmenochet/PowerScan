@@ -9,7 +9,7 @@ function Get-CimScheduledTask {
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-ComScheduledTask queries remote host through WMI for scheduled tasks (optionally matching criteria).
+    Get-CimScheduledTask queries remote host through WMI for scheduled tasks (optionally matching criteria).
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -30,7 +30,7 @@ function Get-CimScheduledTask {
     Specifies one or more scheduled tasks by path.
 
 .EXAMPLE
-    PS C:\> Get-ComScheduledTask -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -TaskName 'update'
+    PS C:\> Get-CimScheduledTask -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -TaskName 'update'
 #>
 
     [CmdletBinding()]

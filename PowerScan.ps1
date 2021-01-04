@@ -28,7 +28,7 @@ function Invoke-PowerScan {
     Specifies an Active Directory domain for enumerating target controllers.
 
 .PARAMETER Credential
-    Specify the account to use for LDAP bind.
+    Specifies the account to use for LDAP bind.
 
 .PARAMETER Threads
     Specifies the number of threads to use, defaults to 10.

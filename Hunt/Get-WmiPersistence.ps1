@@ -24,7 +24,7 @@ function Get-WmiPersistence {
     Specifies the protocol to use.
 
 .EXAMPLE
-    PS C:\> Get-WmiPersistence -Download -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
+    PS C:\> Get-WmiPersistence -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
     [CmdletBinding()]

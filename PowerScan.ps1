@@ -117,7 +117,9 @@ function Invoke-PowerScan {
         }
         $computers = Get-LdapObject -ADSpath $ADSpath -Filter $filter -Properties 'dnshostname' -Credential $Credential
         foreach ($computer in $computers) {
-            $hostList.Add($($computer.dnshostname).ToString()) | Out-Null
+            if ($computer.dnshostname) {
+                $hostList.Add($($computer.dnshostname).ToString()) | Out-Null
+            }
         }
     }
 

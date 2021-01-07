@@ -97,17 +97,31 @@ function Get-PowershellHistory {
                 $obj = New-Object -TypeName psobject
                 $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
                 $obj | Add-Member -MemberType NoteProperty -Name 'ConsoleHost_history' -Value $file.Name
+                $obj | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
+                $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
                 Write-Output $obj
+
                 if ($Download) {
-                    $filepath = "$PWD\$ComputerName"
-                    New-Item -ItemType Directory -Force -Path $filepath | Out-Null
+                    $fileName = "$($file.FileName).$($file.Extension)"
+                    $filePath = "$($file.Path)\$fileName"
+                    $outputDir = "$PWD\$ComputerName"
+                    $outputFile = "$outputDir\$($username)_$fileName"
+                    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                     if ($Protocol -eq 'Wsman') {
                         # Download file via PSRemoting
-                        Copy-Item -Path "C:$($file.Path)\$($file.FileName).$($file.Extension)" -Destination "$filepath\$($username)_$($file.FileName).$($file.Extension)" -FromSession $psSession
+                        Copy-Item -Path "C:$filePath" -Destination $outputFile -FromSession $psSession
                     }
                     else {
                         # Download file via SMB
-                        Copy-Item -Path "\\$ComputerName\C`$$($file.Path)\$($file.FileName).$($file.Extension)" -Destination "$filepath\$($username)_$($file.FileName).$($file.Extension)" -Credential $Credential
+                        if ($Credential.Username) {
+                            $drive = Get-StringHash $ComputerName
+                            New-PSDrive -Name $drive -Root "\\$ComputerName\C`$" -PSProvider "FileSystem" -Credential $Credential | Out-Null
+                            Copy-Item -Path "${drive}:$filePath" -Destination $outputFile
+                            Remove-PSDrive $drive
+                        }
+                        else {
+                            Copy-Item -Path "\\$ComputerName\C`$$filePath" -Destination $outputFile
+                        }
                     }
                 }
             }
@@ -137,4 +151,12 @@ function Local:Get-MappedSID {
     $path = "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$SID"
     $key = "ProfileImagePath"
     return (Invoke-CimMethod -CimSession $CimSession -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$path; sValueName=$key} -Verbose:$false).sValue
+}
+
+function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
+    $stringBuilder = New-Object System.Text.StringBuilder 
+    [System.Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($String)) | % { 
+        [Void]$stringBuilder.Append($_.ToString("x2")) 
+    } 
+    $stringBuilder.ToString() 
 }

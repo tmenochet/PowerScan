@@ -66,34 +66,52 @@ function Get-SecurityStatus {
             break
         }
 
-        $obj = "" | Select-Object -Property "ComputerName","AntiVirus-Status","AntiVirus-LastUpdate","AntiMalware-Status","OnAccessProtection-Status","RealTimeProtection-Status","AntiSpyware-Status","BehaviorMonitor-Status","OfficeProtection-Status","NIS-Status","AntiSpyware-Product","AntiVirus-Product","Firewall-Product","Firewall-DomainProfileStatus"
+        $obj = "" | Select-Object -Property "ComputerName","AntiVirus-Product","AntiVirus-Status","AntiVirus-LastUpdate","OnAccessProtection-Status","RealTimeProtection-Status","BehaviorMonitor-Status","OfficeProtection-Status","NIS-Status","AntiMalware-Status","AM-RecentDetections","AntiSpyware-Product","AntiSpyware-Status","AntiSpyware-LastUpdate","Firewall-Product","Firewall-DomainProfileStatus"
         $obj.'ComputerName' = $ComputerName
     }
 
     PROCESS {
         # Get antimalware status
         try {
-            $mpComputerStatus = Get-MpComputerStatus -CimSession $cimSession -ErrorAction Stop | Select-Object -Property PSComputername,Antivirusenabled,AntivirusSignatureLastUpdated,AMServiceEnabled,AntispywareEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled,NISEnabled,OnAccessProtectionEnabled,RealTimeProtectionEnabled
-            if ($mpComputerStatus -ne $null) {
-                $obj.'AntiVirus-Status' = $mpComputerStatus.AntivirusEnabled
-                $obj.'AntiVirus-LastUpdate' = $mpComputerStatus.AntivirusSignatureLastUpdated
-                $obj.'AntiMalware-Status' = $mpComputerStatus.AMServiceEnabled
-                $obj.'OnAccessProtection-Status' = $mpComputerStatus.OnAccessProtectionEnabled
-                $obj.'RealTimeProtection-Status' = $mpComputerStatus.RealTimeProtectionEnabled
-                $obj.'AntiSpyware-Status' = $mpComputerStatus.AntispywareEnabled
-                $obj.'BehaviorMonitor-Status' = $mpComputerStatus.BehaviorMonitorEnabled
-                $obj.'OfficeProtection-Status' = $mpComputerStatus.IoavProtectionEnabled
-                $obj.'NIS-Status' = $mpComputerStatus.NISEnabled
+            $antiMalwareStatus = Get-CimInstance -Namespace ROOT\Microsoft\SecurityClient -Class AntimalwareHealthStatus -CimSession $cimSession -ErrorAction Stop -Verbose:$false
+            if ($antiMalwareStatus -ne $null) {
+                $obj.'AntiVirus-Status' = $antiMalwareStatus.AntivirusEnabled
+                $obj.'AntiVirus-LastUpdate' = $antiMalwareStatus.AntivirusSignatureUpdateDateTime
+                $obj.'AntiSpyware-LastUpdate' = $antiMalwareStatus.AntispywareSignatureUpdateDateTime
+                $obj.'AntiMalware-Status' = $antiMalwareStatus.Enabled
+                $obj.'OnAccessProtection-Status' = $antiMalwareStatus.OnAccessProtectionEnabled
+                $obj.'RealTimeProtection-Status' = $antiMalwareStatus.RtpEnabled
+                $obj.'AntiSpyware-Status' = $antiMalwareStatus.AntispywareEnabled
+                $obj.'BehaviorMonitor-Status' = $antiMalwareStatus.BehaviorMonitorEnabled
+                $obj.'OfficeProtection-Status' = $antiMalwareStatus.IoavProtectionEnabled
+                $obj.'NIS-Status' = $antiMalwareStatus.NISEnabled
             }
         }
         catch {
-            if($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80041010,Get-MpComputerStatus') {
-                $obj.'AntiMalware-Status' = 'False'
-            }
+            $obj.'AntiMalware-Status' = 'False'
         }
 
+        # Get infection status
+        try {
+            $infection = New-Object System.Collections.ArrayList
+            $detections = Get-CimInstance -Namespace ROOT\Microsoft\SecurityClient -Class Malware -CimSession $cimSession -ErrorAction Stop -Verbose:$false
+            foreach ($detection in $detections) {
+                $properties = [ordered]@{
+                    DetectionTime = $detection.DetectionTime
+                    ActionSuccess = $detection.ActionSuccess
+                    ThreatName = $detection.ThreatName
+                    Process = $detection.Process
+                    Path = $detection.Path
+                    User = $detection.User
+                }
+                $infection.Add((New-Object psobject -Property $properties)) | Out-Null
+            }
+            $obj.'AM-RecentDetections' = $infection
+        }
+        catch {}
+
         # If the host is a workstation, get details about security products
-        $osDetails = Get-CimInstance Win32_OperatingSystem -CimSession $cimSession -Verbose:$false
+        $osDetails = Get-CimInstance -ClassName Win32_OperatingSystem -CimSession $cimSession -Verbose:$false
         if ($osDetails.ProductType -eq 1) {
             $antiSpywareProduct = Get-CimInstance -Namespace ROOT/SecurityCenter2 -Class AntiSpywareProduct -CimSession $cimSession -Verbose:$false
             if ($antiSpywareProduct -ne $null) {

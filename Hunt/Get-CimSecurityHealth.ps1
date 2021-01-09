@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-SecurityStatus {
+function Get-CimSecurityHealth {
 <#
 .SYNOPSIS
     Get the status of security softwares on a remote computer.
@@ -9,7 +9,7 @@ function Get-SecurityStatus {
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-SecurityStatus queries a remote host though WMI about firewall and antivirus products.
+    Get-CimSecurityHealth queries a remote host though WMI about antivirus and firewall products.
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -24,7 +24,7 @@ function Get-SecurityStatus {
     Specifies the protocol to use.
 
 .EXAMPLE
-    PS C:\> Get-SecurityStatus -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
+    PS C:\> Get-CimSecurityHealth -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
     [CmdletBinding()]
@@ -74,8 +74,7 @@ function Get-SecurityStatus {
     PROCESS {
         # Get antimalware status
         try {
-            $antiMalwareStatus = Get-CimInstance -Namespace ROOT\Microsoft\SecurityClient -ClassName AntimalwareHealthStatus -CimSession $cimSession -ErrorAction Stop -Verbose:$false
-            if ($antiMalwareStatus) {
+            if ($antiMalwareStatus = Get-CimInstance -Namespace ROOT\Microsoft\SecurityClient -ClassName AntimalwareHealthStatus -CimSession $cimSession -ErrorAction Stop -Verbose:$false) {
                 $obj.'AntiVirus-Status' = $antiMalwareStatus.AntivirusEnabled
                 $obj.'AntiVirus-LastUpdate' = $antiMalwareStatus.AntivirusSignatureUpdateDateTime
                 $obj.'AntiSpyware-LastUpdate' = $antiMalwareStatus.AntispywareSignatureUpdateDateTime
@@ -89,7 +88,7 @@ function Get-SecurityStatus {
             }
         }
         catch {
-            $obj.'AntiMalware-Status' = 'False'
+            $obj.'AntiMalware-Status' = $false
         }
 
         # Get infection status
@@ -120,16 +119,13 @@ function Get-SecurityStatus {
             else {
                 $namespace = "ROOT/SecurityCenter2"
             }
-            $antiSpywareProduct = Get-CimInstance -Namespace $namespace -ClassName AntiSpywareProduct -CimSession $cimSession -Verbose:$false
-            if ($antiSpywareProduct) {
+            if ($antiSpywareProduct = Get-CimInstance -Namespace $namespace -ClassName AntiSpywareProduct -CimSession $cimSession -Verbose:$false) {
                 $obj.'AntiSpyware-Product' = $antiSpywareProduct.displayName
             }
-            $antiVirusProduct = Get-CimInstance -Namespace $namespace -ClassName AntiVirusProduct -CimSession $cimSession -Verbose:$false
-            if ($antiVirusProduct) {
+            if ($antiVirusProduct = Get-CimInstance -Namespace $namespace -ClassName AntiVirusProduct -CimSession $cimSession -Verbose:$false) {
                 $obj.'AntiVirus-Product' = $antiVirusProduct.displayName
             }
-            $firewallProduct = Get-CimInstance -Namespace $namespace -ClassName FirewallProduct -CimSession $cimSession -Verbose:$false
-            if ($firewallProduct) {
+            if ($firewallProduct = Get-CimInstance -Namespace $namespace -ClassName FirewallProduct -CimSession $cimSession -Verbose:$false) {
                 $obj.'Firewall-Product' = $firewallProduct.displayName
             }
 
@@ -164,18 +160,14 @@ function Get-SecurityStatus {
         }
 
         # Get firewall status
-        $key = 'SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile'
-        $value = 'EnableFirewall'
-        $firewallDomainProfileStatus = (Invoke-CimMethod -ClassName StdRegProv -Name GetDWordValue -Arguments @{
-            hDefKey = $HKLM
-            sSubKeyName = $key
-            sValueName = $value
-        } -CimSession $cimSession -Verbose:$false).uValue
+        $location = 'SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile'
+        $key = 'EnableFirewall'
+        $firewallDomainProfileStatus = (Invoke-CimMethod -ClassName StdRegProv -Name GetDWordValue -Arguments @{hDefKey = $HKLM; sSubKeyName = $location; sValueName = $key} -CimSession $cimSession -Verbose:$false).uValue
         if ($firewallDomainProfileStatus -eq 1) {
-            $firewallStatus = $True
+            $firewallStatus = $true
         }
         elseif ($firewallDomainProfileStatus -eq 0) {
-            $firewallStatus = $False
+            $firewallStatus = $false
         }
         $obj.'Firewall-DomainProfileStatus' = $firewallStatus
         Write-Output $obj

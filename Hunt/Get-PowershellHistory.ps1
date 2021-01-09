@@ -85,42 +85,43 @@ function Get-PowershellHistory {
     }
 
     PROCESS {
-        [uint32]$HKU = 2147483651
-        $SIDS = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
-
-        foreach ($SID in $SIDs) {
-            $mappedSID = Get-MappedSID -SID $SID -CimSession $cimSession
-            $username = Split-Path -Leaf (Split-Path -Leaf ($mappedSID))
-            $filter  = "Drive='C:' AND Path='\\Users\\$username\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\' AND FileName='ConsoleHost_history' AND Extension='txt'"
-            $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $cimSession -Verbose:$false
+        Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
+            $profilePath = $_.LocalPath
+            $profileDrive = ($profilePath -split ":").Get(0)
+            $historyDir = ($profilePath -split ":").Get(1) + "\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\" -replace '\\','\\'
+            $filter  = "Drive='${profileDrive}:' AND Path='$historyDir' AND FileName='ConsoleHost_history' AND Extension='txt'"
+            $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter $filter -CimSession $cimSession -Verbose:$false
             if ($file.Name) {
                 $obj = New-Object -TypeName psobject
                 $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                $obj | Add-Member -MemberType NoteProperty -Name 'ConsoleHost_history' -Value $file.Name
+                $obj | Add-Member -MemberType NoteProperty -Name 'SID' -Value $_.SID
+                $obj | Add-Member -MemberType NoteProperty -Name 'PowerShellHistory' -Value $file.Name
                 $obj | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
                 $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
                 Write-Output $obj
 
                 if ($Download) {
+                    $temp = $profilePath -split "\\"
+                    $userName = $temp.get($temp.Count - 1)
                     $fileName = "$($file.FileName).$($file.Extension)"
                     $filePath = "$($file.Path)\$fileName"
                     $outputDir = "$PWD\$ComputerName"
-                    $outputFile = "$outputDir\$($username)_$fileName"
+                    $outputFile = "$outputDir\${userName}_$fileName"
                     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                     if ($Protocol -eq 'Wsman') {
                         # Download file via PSRemoting
-                        Copy-Item -Path "C:$filePath" -Destination $outputFile -FromSession $psSession
+                        Copy-Item -Path "${profileDrive}:$filePath" -Destination $outputFile -FromSession $psSession
                     }
                     else {
                         # Download file via SMB
                         if ($Credential.Username) {
                             $drive = Get-StringHash $ComputerName
-                            New-PSDrive -Name $drive -Root "\\$ComputerName\C`$" -PSProvider "FileSystem" -Credential $Credential | Out-Null
+                            New-PSDrive -Name $drive -Root "\\$ComputerName\$profileDrive`$" -PSProvider "FileSystem" -Credential $Credential | Out-Null
                             Copy-Item -Path "${drive}:$filePath" -Destination $outputFile
                             Remove-PSDrive $drive
                         }
                         else {
-                            Copy-Item -Path "\\$ComputerName\C`$$filePath" -Destination $outputFile
+                            Copy-Item -Path "\\$ComputerName\$profileDrive`$$filePath" -Destination $outputFile
                         }
                     }
                 }
@@ -134,23 +135,6 @@ function Get-PowershellHistory {
             Remove-PSSession -Session $psSession
         }
     }
-}
-
-function Local:Get-MappedSID {
-    Param (
-        [ValidateNotNullOrEmpty()]
-        [String]
-        $SID,
-
-        [Parameter(Mandatory = $True)]
-        [CimSession]
-        $CimSession
-    )
-
-    [uint32]$HKLM = 2147483650
-    $path = "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$SID"
-    $key = "ProfileImagePath"
-    return (Invoke-CimMethod -CimSession $CimSession -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$path; sValueName=$key} -Verbose:$false).sValue
 }
 
 function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 

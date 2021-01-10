@@ -152,7 +152,7 @@ function Local:Get-VncCredentialFile {
         $CimSession,
 
         [Switch]
-        $Download
+        $Download,
 
         [Management.Automation.Runspaces.PSSession]
         $PSSession,
@@ -160,7 +160,7 @@ function Local:Get-VncCredentialFile {
         [ValidateNotNullOrEmpty()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty,
+        $Credential = [System.Management.Automation.PSCredential]::Empty
     )
 
     BEGIN {

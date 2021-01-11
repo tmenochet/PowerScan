@@ -101,28 +101,15 @@ function Get-PowershellHistory {
                 Write-Output $obj
 
                 if ($Download) {
-                    $temp = $profilePath -split "\\"
-                    $userName = $temp.get($temp.Count - 1)
-                    $fileName = "$($file.FileName).$($file.Extension)"
-                    $filePath = "$($file.Path)\$fileName"
                     $outputDir = "$PWD\$ComputerName"
-                    $outputFile = "$outputDir\${userName}_$fileName"
+                    $temp = $profilePath -split "\\"
+                    $outputFile = "$outputDir\$($temp.get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
                     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-                    if ($Protocol -eq 'Wsman') {
-                        # Download file via PSRemoting
-                        Copy-Item -Path "${profileDrive}:$filePath" -Destination $outputFile -FromSession $psSession
+                    if ($psSession) {
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $psSession
                     }
                     else {
-                        # Download file via SMB
-                        if ($Credential.Username) {
-                            $drive = Get-StringHash $ComputerName
-                            New-PSDrive -Name $drive -Root "\\$ComputerName\$profileDrive`$" -PSProvider "FileSystem" -Credential $Credential | Out-Null
-                            Copy-Item -Path "${drive}:$filePath" -Destination $outputFile
-                            Remove-PSDrive $drive
-                        }
-                        else {
-                            Copy-Item -Path "\\$ComputerName\$profileDrive`$$filePath" -Destination $outputFile
-                        }
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
                     }
                 }
             }
@@ -131,16 +118,70 @@ function Get-PowershellHistory {
 
     END {
         Remove-CimSession -CimSession $cimSession
-        if ($Download -and $Protocol -eq 'Wsman') {
+        if ($psSession) {
             Remove-PSSession -Session $psSession
         }
     }
 }
 
-function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
-    $stringBuilder = New-Object System.Text.StringBuilder 
-    [System.Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($String)) | % { 
-        [Void]$stringBuilder.Append($_.ToString("x2")) 
-    } 
-    $stringBuilder.ToString() 
+function Local:Get-RemoteFile {
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory = $True)]
+        [String]
+        $Path,
+
+        [Parameter(Mandatory = $True)]
+        [String]
+        $Destination,
+
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ComputerName = $env:COMPUTERNAME,
+
+        [ValidateSet('SMB', 'PSRemoting')]
+        [String]
+        $Protocol = 'SMB',
+
+        [ValidateNotNullOrEmpty()]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential = [System.Management.Automation.PSCredential]::Empty,
+
+        [Management.Automation.Runspaces.PSSession]
+        $PSSession
+    )
+
+    BEGIN {
+        function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
+            $stringBuilder = New-Object System.Text.StringBuilder 
+            [System.Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($String)) | % { 
+                [Void]$stringBuilder.Append($_.ToString("x2")) 
+            } 
+            return $stringBuilder.ToString() 
+        }
+    }
+
+    PROCESS {
+        if ($PSSession) {
+            # Download file via PSRemoting
+            Copy-Item -Path $Path -Destination $Destination -FromSession $PSSession -Recurse
+        }
+        else {
+            # Download file via SMB
+            $fileDrive = ($Path -split ':').Get(0)
+            $filePath = ($Path -split ':').Get(1)
+            if ($Credential.Username) {
+                $drive = Get-StringHash $ComputerName
+                New-PSDrive -Name $drive -Root "\\$ComputerName\$fileDrive`$" -PSProvider "FileSystem" -Credential $Credential | Out-Null
+                Copy-Item -Path "${drive}:$filePath" -Destination $Destination -Recurse
+                Remove-PSDrive $drive
+            }
+            else {
+                Copy-Item -Path "\\$ComputerName\$fileDrive`$$filePath" -Destination $Destination -Recurse
+            }
+        }
+    }
+
+    END {}
 }

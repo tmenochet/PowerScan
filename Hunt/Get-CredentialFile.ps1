@@ -3,13 +3,13 @@
 function Get-CredentialFile {
 <#
 .SYNOPSIS
-    Get credential files on a remote computer.
+    Get credentials from files located on a remote computer.
     Privileges required: high
 
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-CredentialFile enumerates credentials files on a remote host through WMI and optionally downloads them.
+    Get-CredentialFile enumerates files containing credentials on a remote host through WMI and optionally downloads them.
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -139,7 +139,7 @@ function Get-CredentialFile {
 
     END {
         Remove-CimSession -CimSession $cimSession
-        if ($Download -and $Protocol -eq 'Wsman') {
+        if ($psSession) {
             Remove-PSSession -Session $psSession
         }
     }

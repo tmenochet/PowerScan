@@ -137,15 +137,15 @@ function Local:Get-VncCredentialRegistry {
 
     PROCESS {
         $commonKeys = @(
-            "\SOFTWARE\RealVNC\WinVNC4"
-            "\SOFTWARE\RealVNC\vncserver"
-            "\SOFTWARE\RealVNC\Default"
-            "\SOFTWARE\Wow6432Node\RealVNC\WinVNC4"
-            "\SOFTWARE\TigerVNC\WinVNC4"
-            "\SOFTWARE\TightVNC\Server"
-            "\SOFTWARE\ORL\WinVNC3"
-            "\SOFTWARE\ORL\WinVNC3\Default"
-            "\SOFTWARE\ORL\WinVNC\Default"
+            "SOFTWARE\RealVNC\WinVNC4"
+            "SOFTWARE\RealVNC\vncserver"
+            "SOFTWARE\RealVNC\Default"
+            "SOFTWARE\Wow6432Node\RealVNC\WinVNC4"
+            "SOFTWARE\TigerVNC\WinVNC4"
+            "SOFTWARE\TightVNC\Server"
+            "SOFTWARE\ORL\WinVNC3"
+            "SOFTWARE\ORL\WinVNC3\Default"
+            "SOFTWARE\ORL\WinVNC\Default"
         )
 
         [uint32]$HKLM = 2147483650
@@ -153,11 +153,10 @@ function Local:Get-VncCredentialRegistry {
         $hive = $HKLM
         foreach ($location in $commonKeys) {
             if ($SID) {
-                $location = $SID + $location
+                $location = $SID + "\" + $location
                 $hive = $HKU
             }
-            $password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="Password"} -CimSession $cimSession -Verbose:$false).uValue
-            if ($password) {
+            if ($password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="Password"} -CimSession $cimSession -Verbose:$false).uValue) {
                 $creds = New-Object -TypeName psobject
                 $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value (Get-VncDecryptedPassword($password))
                 $port = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetDWORDValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="PortNumber"} -CimSession $cimSession -Verbose:$false).uValue

@@ -136,33 +136,46 @@ function Local:Get-VncCredentialRegistry {
     }
 
     PROCESS {
-        [uint32]$HKLM = 2147483650
-        [uint32]$HKU = 2147483651
         $commonKeys = @(
             "\SOFTWARE\RealVNC\WinVNC4"
+            "\SOFTWARE\RealVNC\vncserver"
+            "\SOFTWARE\RealVNC\Default"
+            "\SOFTWARE\Wow6432Node\RealVNC\WinVNC4"
             "\SOFTWARE\TigerVNC\WinVNC4"
             "\SOFTWARE\TightVNC\Server"
-            "\SOFTWARE\RealVNC\vncserver"
+            "\SOFTWARE\ORL\WinVNC3"
+            "\SOFTWARE\ORL\WinVNC3\Default"
+            "\SOFTWARE\ORL\WinVNC\Default"
         )
 
+        [uint32]$HKLM = 2147483650
+        [uint32]$HKU = 2147483651
         $hive = $HKLM
         foreach ($location in $commonKeys) {
             if ($SID) {
-                $hive = $HKU
                 $location = $SID + $location
+                $hive = $HKU
             }
-            $password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="Password"} -CimSession $cimSession -Verbose:$false).sValue
+            $password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="Password"} -CimSession $cimSession -Verbose:$false).uValue
             if ($password) {
-                $password = Get-VncDecryptedPassword(HexStringToByteArray($password))
-                $port = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="PortNumber"} -CimSession $cimSession -Verbose:$false).sValue
+                $creds = New-Object -TypeName psobject
+                $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value (Get-VncDecryptedPassword($password))
+                $port = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetDWORDValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="PortNumber"} -CimSession $cimSession -Verbose:$false).uValue
                 if(-not $port) {
-                    $port = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="RfbPort"} -CimSession $cimSession -Verbose:$false).sValue
+                    $port = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetDWORDValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="RfbPort"} -CimSession $cimSession -Verbose:$false).uValue
+                }
+                $creds | Add-Member -MemberType NoteProperty -Name 'Port' -Value $port
+                if ($viewOnlyPassword = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="PasswordViewOnly"} -CimSession $cimSession -Verbose:$false).uValue) {
+                    $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value (Get-VncDecryptedPassword(HexStringToByteArray($viewOnlyPassword)))
+                }
+                if ($controlPassword = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="ControlPassword"} -CimSession $cimSession -Verbose:$false).uValue) {
+                    $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value (Get-VncDecryptedPassword(HexStringToByteArray($controlPassword)))
                 }
                 $obj = New-Object -TypeName psobject
                 $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
                 $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'VNC'
                 $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
-                $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value ([pscustomobject]@{Port=$port; Password=$password})
+                $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
                 Write-Output $obj
             }
         }

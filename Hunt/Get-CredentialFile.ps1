@@ -311,8 +311,8 @@ function Local:Get-FilezillaCredentialFile {
 
                 if ($Download) {
                     $outputDir = "$PWD\$ComputerName"
-                    $temp = $file.Name -split '\\'
-                    $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))"
+                    $temp = $ProfilePath -split "\\"
+                    $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
                     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                     if ($PSSession) {
                         Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $PSSession

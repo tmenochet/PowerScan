@@ -24,7 +24,7 @@ function Invoke-PowerScan {
 .PARAMETER DomainComputers
     Specifies an Active Directory domain for enumerating target computers.
 
-.PARAMETER DomainComputers
+.PARAMETER DomainControllers
     Specifies an Active Directory domain for enumerating target controllers.
 
 .PARAMETER Credential

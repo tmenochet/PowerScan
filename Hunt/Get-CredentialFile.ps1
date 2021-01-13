@@ -304,7 +304,7 @@ function Local:Get-FilezillaCredentialFile {
             if ($file.Name) {
                 $obj = New-Object -TypeName psobject
                 $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'VNC'
+                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'FileZilla'
                 $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
                 $obj | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
                 $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified

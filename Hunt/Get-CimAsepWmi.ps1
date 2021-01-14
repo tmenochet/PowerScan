@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-WmiPersistence {
+function Get-CimAsepWmi {
 <#
 .SYNOPSIS
     Get WMI persistences on a remote computer.
@@ -9,7 +9,7 @@ function Get-WmiPersistence {
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-WmiPersistence enumerates WMI event subscriptions on a remote host.
+    Get-CimAsepWmi enumerates WMI event subscriptions on a remote host.
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -24,7 +24,7 @@ function Get-WmiPersistence {
     Specifies the protocol to use.
 
 .EXAMPLE
-    PS C:\> Get-WmiPersistence -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
+    PS C:\> Get-CimAsepWmi -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
     [CmdletBinding()]
@@ -69,12 +69,23 @@ function Get-WmiPersistence {
 
     PROCESS {
         Get-WmiInstance -Class '__FilterToConsumerBinding' -CimSession $cimSession | ForEach { 
-            if ($_.Consumer -like 'CommandLineEventConsumer*' -or $_.Consumer -like 'ActiveScriptEventConsumer*') {
+            if ($_.Consumer -like 'ActiveScriptEventConsumer*' -or $_.Consumer -like 'CommandLineEventConsumer*') {
+                $consumer = Get-CimInstance -InputObject $_.Consumer -CimSession $CimSession -Verbose:$false
+                if ($consumer.ScriptFileName) {
+                    $action = $consumer.ScriptFileName
+                }
+                elseif ($consumer.ScriptText) {
+                    $action = $consumer.ScriptText
+                }
+                else {
+                    $action = $consumer.CommandLineTemplate
+                }
                 $obj = New-Object -TypeName psobject
                 $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                $obj | Add-Member -MemberType NoteProperty -Name 'Class' -Value $_.CimClass
-                $obj | Add-Member -MemberType NoteProperty -Name 'EventConsumer' -Value $_.Consumer
-                $obj | Add-Member -MemberType NoteProperty -Name 'EventFilter' -Value $_.Filter
+                $obj | Add-Member -MemberType NoteProperty -Name 'Class' -Value "$($_.PSBase.CimSystemProperties.Namespace) : $($_.PSBase.CimSystemProperties.ClassName)"
+                $obj | Add-Member -MemberType NoteProperty -Name 'Filter' -Value "$($_.Filter.PSBase.CimSystemProperties.Namespace) : EventFilter.Name='$($_.Filter.Name)'"
+                $obj | Add-Member -MemberType NoteProperty -Name 'Consumer' -Value "$($_.Consumer.PSBase.CimSystemProperties.Namespace) : EventConsumer.Name='$($_.Consumer.Name)'"
+                $obj | Add-Member -MemberType NoteProperty -Name 'Action' -Value $action
                 Write-Output $obj
             }
         }

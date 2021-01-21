@@ -84,6 +84,7 @@ function Get-CimScheduledTask {
     PROCESS {
         Get-ScheduledTask -CimSession $cimSession -TaskName "$TaskName*" -TaskPath "$TaskPath*" | ForEach-Object {
             $task = $_
+            $taskInfo = $_ | Get-ScheduledTaskInfo
             $_.Actions | ForEach-Object {
                 $action = $_
                 $action = switch ($($_.CimClass.CimClassName)) {
@@ -116,6 +117,9 @@ function Get-CimScheduledTask {
                 $obj | Add-Member -MemberType NoteProperty -Name 'UserId' -Value $task.Principal.UserId
                 $obj | Add-Member -MemberType NoteProperty -Name 'Enabled' -Value $task.Settings.Enabled
                 $obj | Add-Member -MemberType NoteProperty -Name 'State' -Value $task.State
+                $obj | Add-Member -MemberType NoteProperty -Name 'LastRunTime' -Value $taskInfo.LastRunTime
+                $obj | Add-Member -MemberType NoteProperty -Name 'NextRunTime' -Value $taskInfo.NextRunTime
+                $obj | Add-Member -MemberType NoteProperty -Name 'RegistrationDate' -Value $task.Date
                 $obj | Add-Member -MemberType NoteProperty -Name 'Author' -Value $task.Author
                 $obj | Add-Member -MemberType NoteProperty -Name 'Description' -Value $task.Description
                 Write-Output $obj

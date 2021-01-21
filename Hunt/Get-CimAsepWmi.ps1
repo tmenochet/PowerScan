@@ -71,6 +71,7 @@ function Get-CimAsepWmi {
         Get-WmiInstance -Class '__FilterToConsumerBinding' -CimSession $cimSession | ForEach { 
             if ($_.Consumer -like 'ActiveScriptEventConsumer*' -or $_.Consumer -like 'CommandLineEventConsumer*') {
                 $consumer = Get-CimInstance -InputObject $_.Consumer -CimSession $CimSession -Verbose:$false
+                $creatorSID = New-Object Security.Principal.SecurityIdentifier([byte[]]$consumer.CreatorSID, 0)
                 if ($consumer.ScriptFileName) {
                     $action = $consumer.ScriptFileName
                 }
@@ -86,6 +87,7 @@ function Get-CimAsepWmi {
                 $obj | Add-Member -MemberType NoteProperty -Name 'Filter' -Value "$($_.Filter.PSBase.CimSystemProperties.Namespace) : EventFilter.Name='$($_.Filter.Name)'"
                 $obj | Add-Member -MemberType NoteProperty -Name 'Consumer' -Value "$($_.Consumer.PSBase.CimSystemProperties.Namespace) : EventConsumer.Name='$($_.Consumer.Name)'"
                 $obj | Add-Member -MemberType NoteProperty -Name 'Action' -Value $action
+                $obj | Add-Member -MemberType NoteProperty -Name 'CreatorSID' -Value $creatorSID
                 Write-Output $obj
             }
         }

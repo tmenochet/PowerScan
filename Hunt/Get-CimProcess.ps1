@@ -21,7 +21,7 @@ function Get-CimProcess {
     Ensures host is up before run.
 
 .PARAMETER Protocol
-    Specifies the protocol to use.
+    Specifies the protocol to use, defaults to DCOM.
 
 .PARAMETER ProcessName
     Specifies one or more processes by process name.
@@ -36,13 +36,13 @@ function Get-CimProcess {
     Specifies one or more processes by parent process ID (PPID).
 
 .EXAMPLE
-    PS C:\> Get-CimProcess -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -ProcessName 'keepass'
+    PS C:\> Get-CimProcess -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -ProcessName 'keepass.exe'
 #>
 
     [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
-        [String]
+        [string]
         $ComputerName = $env:COMPUTERNAME,
 
         [ValidateNotNullOrEmpty()]
@@ -54,14 +54,16 @@ function Get-CimProcess {
         $Ping,
 
         [ValidateSet('Dcom', 'Wsman')]
-        [String]
+        [string]
         $Protocol = 'Dcom',
 
         [ValidateNotNullOrEmpty()]
+        [SupportsWildcards()]
         [string]
         $ProcessName,
 
         [ValidateNotNullOrEmpty()]
+        [SupportsWildcards()]
         [string]
         $ExecutablePath,
 
@@ -94,20 +96,33 @@ function Get-CimProcess {
             break
         }
 
-        $filter = $null
         $filters = New-Object System.Collections.ArrayList
-        if ($ProcessName) {
-            $filters.Add("Name LIKE '%$ProcessName%'") | Out-Null
+        switch ($PSBoundParameters.Keys) {
+            "ProcessName" {
+                if ($ProcessName -match "\*") {
+                    $filters.Add("Name LIKE '$($ProcessName.Replace('*','%'))'") | Out-Null
+                }
+                else {
+                    $filters.Add("Name = '$ProcessName'") | Out-Null
+                }
+            }
+            "ExecutablePath" {
+                if ($ExecutablePath -match "\*") {
+                    $filters.Add("ExecutablePath LIKE '$($ExecutablePath.Replace('*','%').Replace('\','_'))'") | Out-Null
+                }
+                else {
+                    $filters.Add("ExecutablePath = '$($ExecutablePath.Replace('\','\\'))'") | Out-Null
+                }
+            }
+            "ProcessID" {
+                $filters.Add("ProcessId = '$ProcessId'") | Out-Null
+            }
+            "ParentProcessID" {
+                $filters.Add("ParentProcessID = '$ParentProcessID'") | Out-Null
+            }
+            Default {}
         }
-        if ($ExecutablePath) {
-            $filters.Add($("ExecutablePath LIKE '%$ExecutablePath%'" -Replace "\\","_")) | Out-Null
-        }
-        if ($ProcessID) {
-            $filters.Add("ProcessId='$ProcessID'") | Out-Null
-        }
-        if ($ParentProcessID) {
-            $filters.Add("ParentProcessID='$ParentProcessID'") | Out-Null
-        }
+        $filter = $null
         if ($filters.Count) {
             $filter = $filters -join ' AND '
         }

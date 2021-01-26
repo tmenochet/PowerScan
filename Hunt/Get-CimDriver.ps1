@@ -21,7 +21,7 @@ function Get-CimDriver {
     Ensures host is up before run.
 
 .PARAMETER Protocol
-    Specifies the protocol to use.
+    Specifies the protocol to use, defaults to DCOM.
 
 .PARAMETER ServiceName
     Specifies one or more drivers by name.
@@ -35,8 +35,11 @@ function Get-CimDriver {
 .PARAMETER State
     Specifies one or more drivers by state.
 
+.PARAMETER InvertLogic
+    Queries services that do not match specified criteria.
+
 .EXAMPLE
-    PS C:\> Get-CimDriver -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -ExecutablePath 'FeKern.sys'
+    PS C:\> Get-CimDriver -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -ExecutablePath FeKern.sys
 #>
 
     [CmdletBinding()]
@@ -71,7 +74,10 @@ function Get-CimDriver {
 
         [ValidateSet('Stopped', 'Start Pending', 'Stop Pending', 'Running', 'Continue Pending', 'Pause Pending', 'Paused', 'Unknown')]
         [string]
-        $State
+        $State,
+
+        [switch]
+        $InvertLogic
     )
 
     BEGIN {
@@ -94,22 +100,38 @@ function Get-CimDriver {
             break
         }
 
-        $filter = $null
         $filters = New-Object System.Collections.ArrayList
-        if ($ServiceName) {
-            $filters.Add("Name LIKE '%$ServiceName%'") | Out-Null
+        switch ($PSBoundParameters.Keys) {
+            "ServiceName" {
+                if ($ServiceName -match "\*") {
+                    $filters.Add("Name LIKE '$($ServiceName.Replace('*','%'))'") | Out-Null
+                }
+                else {
+                    $filters.Add("Name = '$ServiceName'") | Out-Null
+                }
+            }
+            "ExecutablePath" {
+                if ($ExecutablePath -match "\*") {
+                    $filters.Add("PathName LIKE '$($ExecutablePath.Replace('*','%').Replace('\','_'))'") | Out-Null
+                }
+                else {
+                    $filters.Add("PathName = '$($ExecutablePath.Replace('\','\\'))'") | Out-Null
+                }
+            }
+            "State" {
+                $filters.Add("State = '$State'") | Out-Null
+            }
+            "StartMode" {
+                $filters.Add("StartMode = '$StartMode'") | Out-Null
+            }
+            Default {}
         }
-        if ($ExecutablePath) {
-            $filters.Add($("PathName LIKE '%$ExecutablePath%'" -Replace "\\","_")) | Out-Null
-        }
-        if ($State) {
-            $filters.Add("State='$State'") | Out-Null
-        }
-        if ($StartMode) {
-            $filters.Add("StartMode='$StartMode'") | Out-Null
-        }
+        $filter = $null
         if ($filters.Count) {
             $filter = $filters -join ' AND '
+            if ($InvertLogic) {
+                $filter = "NOT $filter"
+            }
         }
     }
 

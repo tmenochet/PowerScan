@@ -7,6 +7,8 @@ If you need to run PowerShell script block on remote hosts, please refer to [Pow
 
 PowerScan project includes various PowerShell scripts that can be launched within PowerScan as script block for recon, post-exploitation or threat hunting purposes.
 
+By default, output is written into a CSV file in the current directory. This can be disabled using the switch `-NoOutput`.
+
 
 ## Functions
 
@@ -62,7 +64,7 @@ Get the status of Print Spooler service on all domain controllers:
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Recon/Get-SpoolerStatus.ps1')
-PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-LogonEvent} -DomainControllers ADATUM.CORP -Credential user@ADATUM.CORP
+PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SpoolerStatus} -DomainControllers ADATUM.CORP -Credential user@ADATUM.CORP
 ```
 
 

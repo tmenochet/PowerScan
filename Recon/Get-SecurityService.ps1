@@ -34,6 +34,9 @@ Function Get-SecurityService {
         "epredline"                                         = "Bitdefender Endpoint Redline Services"
         "EPSecurityService"                                 = "Bitdefender Endpoint Security Service"
         "EPUpdateService"                                   = "Bitdefender Endpoint Update Service"
+        "CarbonBlack"                                       = "Carbon Black"
+        "carbonblackk"                                      = "Carbon Black"
+        "cbstream"                                          = "Carbon Black"
         "CSFalconService"                                   = "CrowdStrike Falcon Sensor Service"
         "CylanceSvc"                                        = "Cylance"
         "epfw"                                              = "ESET"
@@ -62,6 +65,10 @@ Function Get-SecurityService {
         "mfemms"                                            = "MacAfee Service Controller"
         "mfevtp"                                            = "MacAfee Validation Trust Protection Service"
         "mfewc"                                             = "MacAfee Endpoint Security Web Control Service"
+        "WinDefend"                                         = "Microsoft Defender Antivirus Service"
+        "Sense"                                             = "Microsoft Defender Advanced Threat Protection Service"
+        "WdNisSvc"                                          = "Microsoft Defender Antivirus Network Inspection Service"
+        "AATPSensor"                                        = "Microsoft Azure Advanced Threat Protection Sensor"
         "cyverak"                                           = "PaloAlto Traps KernelDriver"
         "cyvrmtgn"                                          = "PaloAlto Traps KernelDriver"
         "cyvrfsfd"                                          = "PaloAlto Traps FileSystemDriver"
@@ -100,9 +107,6 @@ Function Get-SecurityService {
         "tmevtmgr"                                          = "Trend"
         "ntrtscan"                                          = "Trend Micro Worry Free Business"
         "WRSVC"                                             = "Webroot"
-        "WinDefend"                                         = "Windows Defender Antivirus Service"
-        "Sense "                                            = "Windows Defender Advanced Threat Protection Service"
-        "WdNisSvc "                                         = "Windows Defender Antivirus Network Inspection Service"
     }
 
     foreach ($entry in $serviceDict.GetEnumerator()) {

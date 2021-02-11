@@ -1,4 +1,4 @@
-function Get-SpoolerStatus {
+Function Get-SpoolerStatus {
 <#
 .SYNOPSIS
     Get the status of Print Spooler service on remote computer.
@@ -13,15 +13,28 @@ function Get-SpoolerStatus {
 .PARAMETER ComputerName
     Specifies the target host.
 
+.PARAMETER Credential
+    Specifies the account to use.
+
 .EXAMPLE
-    PS C:\> Get-SpoolerStatus -ComputerName DC.ADATUM.CORP
+    PS C:\> Get-SpoolerStatus -ComputerName DC.ADATUM.CORP -Credential ADATUM\testuser
 #>
 
+    [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
         [string]
-        $ComputerName = $env:COMPUTERNAME
+        $ComputerName = $env:COMPUTERNAME,
+
+        [ValidateNotNullOrEmpty()]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential = [System.Management.Automation.PSCredential]::Empty
     )
+
+    if ($Credential.UserName) {
+        $logonToken = Invoke-UserImpersonation -Credential $Credential
+    }
 
     $rprn = New-Object PingCastle.rprn
     $status = $rprn.CheckIfTheSpoolerIsActive($ComputerName)
@@ -31,16 +44,82 @@ function Get-SpoolerStatus {
         $obj | Add-Member -MemberType NoteProperty -Name 'SpoolerStatus' -Value $status
         Write-Output $obj
     }
+
+    if ($logonToken) {
+        Invoke-RevertToSelf -TokenHandle $logonToken
+    }
 }
 
-$source = @"
+# Adapted from PowerView by @harmj0y and @mattifestation
+Function Local:Invoke-UserImpersonation {
+    [OutputType([IntPtr])]
+    [CmdletBinding(DefaultParameterSetName = 'Credential')]
+    Param(
+        [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
+        [Management.Automation.PSCredential]
+        [Management.Automation.CredentialAttribute()]
+        $Credential,
+
+        [Parameter(Mandatory = $True, ParameterSetName = 'TokenHandle')]
+        [ValidateNotNull()]
+        [IntPtr]
+        $TokenHandle,
+
+        [Switch]
+        $Quiet
+    )
+
+    if (([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') -and (-not $PSBoundParameters['Quiet'])) {
+        Write-Warning "[UserImpersonation] powershell.exe is not currently in a single-threaded apartment state, token impersonation may not work."
+    }
+
+    if ($PSBoundParameters['TokenHandle']) {
+        $LogonTokenHandle = $TokenHandle
+    }
+    else {
+        $LogonTokenHandle = [IntPtr]::Zero
+        $NetworkCredential = $Credential.GetNetworkCredential()
+        $UserDomain = $NetworkCredential.Domain
+        $UserName = $NetworkCredential.UserName
+        Write-Verbose "[UserImpersonation] Executing LogonUser() with user: $($UserDomain)\$($UserName)"
+
+        if (-not [Advapi32]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
+            $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            throw "[UserImpersonation] LogonUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+        }
+    }
+
+    if (-not [Advapi32]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
+        throw "[UserImpersonation] ImpersonateLoggedOnUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+    }
+    $LogonTokenHandle
+}
+
+Function Local:Invoke-RevertToSelf {
+    [CmdletBinding()]
+    Param(
+        [ValidateNotNull()]
+        [IntPtr]
+        $TokenHandle
+    )
+
+    if ($PSBoundParameters['TokenHandle']) {
+        Write-Verbose "[RevertToSelf] Reverting token impersonation and closing LogonUser() token handle"
+        [Kernel32]::CloseHandle($TokenHandle) | Out-Null
+    }
+    if (-not [Advapi32]::RevertToSelf()) {
+        $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "[RevertToSelf] RevertToSelf() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+    }
+}
+
+Add-Type @"
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Permissions;
 using System.Text;
-
 namespace PingCastle
 {
     public class rprn
@@ -747,5 +826,23 @@ namespace PingCastle
         }
     }
 }
+public static class Advapi32 {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool LogonUserA(
+        string lpszUserName, 
+        string lpszDomain,
+        string lpszPassword,
+        int dwLogonType, 
+        int dwLogonProvider,
+        ref IntPtr  phToken
+    );
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool RevertToSelf();
+}
+public static class Kernel32 {
+    [DllImport("kernel32.dll", SetLastError=true)]
+	public static extern bool CloseHandle(IntPtr hObject);
+}
 "@
-Add-Type -TypeDefinition $source

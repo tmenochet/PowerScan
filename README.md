@@ -16,13 +16,14 @@ By default, output is written into a CSV file in the current directory. This can
 
 Reconnaissance functions require either low privileges (typically domain user) or none.
 
-| Function             | Description                                |
-| -------------------- | ------------------------------------------ |
-| Get-NetSession       | Get net sessions                           |
-| Get-OxidBindings     | Get addresses of network interfaces        |
-| Get-SecurityServices | Detect security services                   |
-| Get-SmbStatus        | Get available versions of the SMB protocol |
-| Get-SpoolerStatus    | Get the status of Print Spooler service    |
+| Function              | Description                                |
+| --------------------- | ------------------------------------------ |
+| Get-NetSession        | Get session information                    |
+| Get-NullSessionStatus | Check if null session to IPC$ is allowed   |
+| Get-OxidBindings      | Get addresses of network interfaces        |
+| Get-SecurityService   | Detect security services                   |
+| Get-SmbStatus         | Get available versions of the SMB protocol |
+| Get-SpoolerStatus     | Get the status of Print Spooler service    |
 
 
 ### Hunt
@@ -59,16 +60,16 @@ PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SmbStatus} -ComputerList 19
 ```
 
 
-Get the status of Print Spooler service on all domain controllers:
+Get the status of Print Spooler service on all domain controllers (using implicit credentials):
 
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Recon/Get-SpoolerStatus.ps1')
-PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SpoolerStatus} -DomainControllers ADATUM.CORP -Credential user@ADATUM.CORP
+PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SpoolerStatus} -DomainControllers ADATUM.CORP
 ```
 
 
-Gather credentials from common files on all domain computers:
+Gather credentials from common files on all domain computers (using explicit credentials):
 
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')

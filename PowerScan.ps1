@@ -1,4 +1,4 @@
-function Invoke-PowerScan {
+Function Invoke-PowerScan {
 <#
 .SYNOPSIS
     Query multiple computers via PowerShell script block.
@@ -33,27 +33,30 @@ function Invoke-PowerScan {
 .PARAMETER Threads
     Specifies the number of threads to use, defaults to 10.
 
-.PARAMETER NoOutput
+.PARAMETER Quiet
+    Disables console output.
+
+.PARAMETER NoCsv
     Disables CSV output.
 
 .PARAMETER OutputFile
-    Specifies CSV output file path, defaults to '.\$ModuleName.csv'
+    Specifies CSV output file path, defaults to '.\$CurrentDate_$ModuleName.csv'
 
 .EXAMPLE
-    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-OxidBindings} -ComputerList 192.168.1.0/24
+    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-OxidBindings} -ComputerList 192.168.1.0/24 -Quiet
 
 .EXAMPLE
-    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-NetSession} -ScriptParameters @{'Identity'='john.doe'} -DomainComputers ADATUM.CORP -NoOutput
+    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-NetSession} -ScriptParameters @{'Identity'='john.doe'} -DomainComputers ADATUM.CORP -NoCsv
 
 .EXAMPLE
     PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-    PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-LogonEvent} -ScriptParameters @{'Credential'=$cred; 'Identity'='john.doe'} -DomainControllers ADATUM.CORP -Credential $cred
+    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-LogonEvent} -ScriptParameters @{'Credential'=$cred; 'Identity'='john.doe'} -DomainControllers ADATUM.CORP -Credential $cred
 #>
 
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory = $True, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $True)]
-        [System.Management.Automation.ScriptBlock]
+        [Management.Automation.ScriptBlock]
         $ScriptBlock,
 
         [ValidateNotNullOrEmpty()]
@@ -77,23 +80,26 @@ function Invoke-PowerScan {
         $DomainControllers,
 
         [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty,
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty,
 
         [ValidateNotNullOrEmpty()]
         [Int]
         $Threads = 10,
 
         [Switch]
-        $NoOutput,
+        $Quiet,
+
+        [Switch]
+        $NoCsv,
 
         [ValidateNotNullOrEmpty()]
         [string]
-        $OutputFile = "$PWD\$($ScriptBlock.Ast.Name).csv"
+        $OutputFile = "$PWD\$(Get-Date -Format "yyyyMMdd-HH.mm.ss")_$($ScriptBlock.Ast.Name).csv"
     )
 
-    $hostList = New-Object System.Collections.ArrayList
+    $hostList = New-Object Collections.ArrayList
 
     foreach ($computer in $ComputerList) {
         if ($computer.contains("/")) {
@@ -106,7 +112,7 @@ function Invoke-PowerScan {
 
     if (($Domain = $DomainComputers) -or ($Domain = $DomainControllers)) {
         $searchString = "LDAP://$Domain/RootDSE"
-        $domainObject = New-Object System.DirectoryServices.DirectoryEntry($searchString, $null, $null)
+        $domainObject = New-Object DirectoryServices.DirectoryEntry($searchString, $null, $null)
         $rootDN = $domainObject.rootDomainNamingContext[0]
         $ADSpath = "LDAP://$Domain/$rootDN"
         if ($DomainControllers) {
@@ -124,15 +130,17 @@ function Invoke-PowerScan {
     }
 
     New-ThreadedFunction -ScriptBlock $ScriptBlock -ScriptParameters $ScriptParameters -Collection $hostList -CollectionParameter $ComputerArgument -Threads $Threads | Where-Object {$_} | ForEach-Object {
-        Write-Output $_
-        if (-not $NoOutput) {
-            Write-OutputToCsv -InputObject $_ -Path $OutputFile -Append
+        if (-not $Quiet) {
+            Write-Output $_
+        }
+        if (-not $NoCsv) {
+            Out-CsvFile -InputObject $_ -Path $OutputFile -Append
         }
     }
 }
 
 # Adapted from Find-Fruit by @rvrsh3ll
-function Local:New-IPv4RangeFromCIDR {
+Function Local:New-IPv4RangeFromCIDR {
     Param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
@@ -140,42 +148,42 @@ function Local:New-IPv4RangeFromCIDR {
         $CIDR
     )
 
-    $hostList = New-Object System.Collections.ArrayList
+    $hostList = New-Object Collections.ArrayList
     $netPart = $CIDR.split("/")[0]
     [uint32]$maskPart = $CIDR.split("/")[1]
 
-    $address = [System.Net.IPAddress]::Parse($netPart)
+    $address = [Net.IPAddress]::Parse($netPart)
     if ($maskPart -ge $address.GetAddressBytes().Length * 8) {
         throw "Bad host mask"
     }
 
-    $numhosts = [System.math]::Pow(2, (($address.GetAddressBytes().Length * 8) - $maskPart))
+    $numhosts = [math]::Pow(2, (($address.GetAddressBytes().Length * 8) - $maskPart))
 
     $startaddress = $address.GetAddressBytes()
     [array]::Reverse($startaddress)
 
-    $startaddress = [System.BitConverter]::ToUInt32($startaddress, 0)
-    [uint32]$startMask = ([System.math]::Pow(2, $maskPart) - 1) * ([System.Math]::Pow(2, (32 - $maskPart)))
+    $startaddress = [BitConverter]::ToUInt32($startaddress, 0)
+    [uint32]$startMask = ([math]::Pow(2, $maskPart) - 1) * ([Math]::Pow(2, (32 - $maskPart)))
     $startAddress = $startAddress -band $startMask
     # In powershell 2.0 there are 4 0 bytes padded, so the [0..3] is necessary
-    $startAddress = [System.BitConverter]::GetBytes($startaddress)[0..3]
+    $startAddress = [BitConverter]::GetBytes($startaddress)[0..3]
     [array]::Reverse($startaddress)
-    $address = [System.Net.IPAddress][byte[]]$startAddress
+    $address = [Net.IPAddress][byte[]]$startAddress
 
     for ($i = 0; $i -lt $numhosts - 2; $i++) {
         $nextAddress = $address.GetAddressBytes()
         [array]::Reverse($nextAddress)
-        $nextAddress = [System.BitConverter]::ToUInt32($nextAddress, 0)
+        $nextAddress = [BitConverter]::ToUInt32($nextAddress, 0)
         $nextAddress++
-        $nextAddress = [System.BitConverter]::GetBytes($nextAddress)[0..3]
+        $nextAddress = [BitConverter]::GetBytes($nextAddress)[0..3]
         [array]::Reverse($nextAddress)
-        $address = [System.Net.IPAddress][byte[]]$nextAddress
+        $address = [Net.IPAddress][byte[]]$nextAddress
         $hostList.Add($address.IPAddressToString) | Out-Null
     }
     return $hostList
 }
 
-function Local:Get-LdapObject {
+Function Local:Get-LdapObject {
     Param (
         [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
@@ -199,17 +207,17 @@ function Local:Get-LdapObject {
         $PageSize = 200,
 
         [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
     )
 
     if ($Credential.UserName) {
-        $domainObject = New-Object System.DirectoryServices.DirectoryEntry($ADSpath, $Credential.UserName, $Credential.GetNetworkCredential().Password)
-        $searcher = New-Object System.DirectoryServices.DirectorySearcher($domainObject)
+        $domainObject = New-Object DirectoryServices.DirectoryEntry($ADSpath, $Credential.UserName, $Credential.GetNetworkCredential().Password)
+        $searcher = New-Object DirectoryServices.DirectorySearcher($domainObject)
     }
     else {
-        $searcher = New-Object System.DirectoryServices.DirectorySearcher([ADSI]$ADSpath)
+        $searcher = New-Object DirectoryServices.DirectorySearcher([ADSI]$ADSpath)
     }
     $searcher.SearchScope = $SearchScope
     $searcher.PageSize = $PageSize
@@ -241,7 +249,7 @@ function Local:Get-LdapObject {
 }
 
 # Adapted from PowerView by @harmj0y and @mattifestation
-function Local:New-ThreadedFunction {
+Function Local:New-ThreadedFunction {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
     Param(
@@ -254,7 +262,7 @@ function Local:New-ThreadedFunction {
         $CollectionParameter = 'ComputerName',
 
         [Parameter(Mandatory = $True)]
-        [System.Management.Automation.ScriptBlock]
+        [Management.Automation.ScriptBlock]
         $ScriptBlock,
 
         [Hashtable]
@@ -269,10 +277,10 @@ function Local:New-ThreadedFunction {
     )
 
     BEGIN {
-        $SessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+        $SessionState = [Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
 
         # Force a single-threaded apartment state (for token-impersonation stuffz)
-        $SessionState.ApartmentState = [System.Threading.ApartmentState]::STA
+        $SessionState.ApartmentState = [Threading.ApartmentState]::STA
 
         # Import the current session state's variables and functions so the chained functionality can be used by the threaded blocks
         if (-not $NoImports) {
@@ -285,13 +293,13 @@ function Local:New-ThreadedFunction {
             # Add variables from Parent Scope (current runspace) into the InitialSessionState
             foreach ($Var in $MyVars) {
                 if ($VorbiddenVars -NotContains $Var.Name) {
-                    $SessionState.Variables.Add((New-Object -TypeName System.Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList $Var.name,$Var.Value,$Var.description,$Var.options,$Var.attributes))
+                    $SessionState.Variables.Add((New-Object -TypeName Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList $Var.name,$Var.Value,$Var.description,$Var.options,$Var.attributes))
                 }
             }
 
             # Add functions from current runspace to the InitialSessionState
             foreach ($Function in (Get-ChildItem Function:)) {
-                $SessionState.Commands.Add((New-Object -TypeName System.Management.Automation.Runspaces.SessionStateFunctionEntry -ArgumentList $Function.Name, $Function.Definition))
+                $SessionState.Commands.Add((New-Object -TypeName Management.Automation.Runspaces.SessionStateFunctionEntry -ArgumentList $Function.Name, $Function.Definition))
             }
         }
 
@@ -368,12 +376,12 @@ function Local:New-ThreadedFunction {
 }
 
 # Adapted from PowerView by @harmj0y and @mattifestation
-function Local:Write-OutputToCsv {
+Function Local:Out-CsvFile {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '')]
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory = $True, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $True)]
-        [System.Management.Automation.PSObject[]]
+        [Management.Automation.PSObject[]]
         $InputObject,
 
         [Parameter(Mandatory = $True, Position = 1)]
@@ -384,7 +392,7 @@ function Local:Write-OutputToCsv {
         [Parameter(Position = 2)]
         [ValidateNotNullOrEmpty()]
         [Char]
-        $Delimiter = ',',
+        $Delimiter = ';',
 
         [Switch]
         $Append
@@ -392,22 +400,22 @@ function Local:Write-OutputToCsv {
 
     BEGIN {
         $OutputPath = [IO.Path]::GetFullPath($PSBoundParameters['Path'])
-        $Exists = [System.IO.File]::Exists($OutputPath)
+        $Exists = [IO.File]::Exists($OutputPath)
 
         # Mutex so threaded code doesn't stomp on the output file
-        $Mutex = New-Object System.Threading.Mutex $False,'CSVMutex'
+        $Mutex = New-Object Threading.Mutex $False,'CSVMutex'
         $null = $Mutex.WaitOne()
 
         if ($PSBoundParameters['Append']) {
-            $FileMode = [System.IO.FileMode]::Append
+            $FileMode = [IO.FileMode]::Append
         }
         else {
-            $FileMode = [System.IO.FileMode]::Create
+            $FileMode = [IO.FileMode]::Create
             $Exists = $False
         }
 
-        $CSVStream = New-Object IO.FileStream($OutputPath, $FileMode, [System.IO.FileAccess]::Write, [IO.FileShare]::Read)
-        $CSVWriter = New-Object System.IO.StreamWriter($CSVStream)
+        $CSVStream = New-Object IO.FileStream($OutputPath, $FileMode, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        $CSVWriter = New-Object IO.StreamWriter($CSVStream)
         $CSVWriter.AutoFlush = $True
     }
 

@@ -5,9 +5,10 @@ PowerScan runs PowerShell script block targeting network ranges or Active Direct
 This tool is designed to run PowerShell code locally in order to quietly query multiple hosts in a multi-threaded way.
 If you need to run PowerShell script block on remote hosts, please refer to [PowerExec](https://github.com/tmenochet/PowerExec) project.
 
-PowerScan project includes various PowerShell scripts that can be launched within PowerScan as script block for recon, post-exploitation or threat hunting purposes.
+PowerScan project includes various PowerShell scripts that can be launched within PowerScan as script block for reconnaissance, post-exploitation or threat hunting purposes.
 
-By default, output is written into a CSV file in the current directory. This can be disabled using the switch `-NoOutput`.
+By default, output is written into a CSV file in the current directory. This can be disabled using the switch `-NoCsv`.
+Console output can also be disabled using the switch `-Quiet`.
 
 
 ## Functions
@@ -56,7 +57,7 @@ Get available versions of the SMB protocol and signing requirements on a network
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Recon/Get-SmbStatus.ps1')
-PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SmbStatus} -ComputerList 192.168.1.0/24 -Thread 5
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-SmbStatus} -ComputerList 192.168.1.0/24 -Thread 5
 ```
 
 
@@ -65,7 +66,7 @@ Get the status of Print Spooler service on all domain controllers (using implici
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Recon/Get-SpoolerStatus.ps1')
-PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-SpoolerStatus} -DomainControllers ADATUM.CORP
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-SpoolerStatus} -DomainControllers ADATUM.CORP -NoCsv
 ```
 
 
@@ -75,7 +76,7 @@ Gather credentials from common files on all domain computers (using explicit cre
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Hunt/Get-CredentialFile.ps1')
 PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-PS C:\> Invoke-PowerScan -ScriptBlock ${function:Get-CredentialFile} -ScriptParameters @{'Credential'=$cred; 'Download'=$true} -DomainComputers ADATUM.CORP -Credential $cred
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CredentialFile} -ScriptParameters @{'Credential'=$cred; 'Download'=$true} -DomainComputers ADATUM.CORP -Credential $cred
 ```
 
 

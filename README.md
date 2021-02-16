@@ -32,22 +32,23 @@ Reconnaissance functions require either low privileges (typically domain user) o
 Hunting functions require high privileges (typically administrator).
 
 
-| Function                | Description                                     |
-| ----------------------- | ----------------------------------------------- |
-| Get-CimAsepLogon        | Get AutoStart Extension Points related to logon |
-| Get-CimAsepWmi          | Get WMI persistences                            |
-| Get-CimDNSCache         | Get DNS cache entries                           |
-| Get-CimDriver           | Get Windows drivers                             |
-| Get-CimNetTCPConnection | Get current TCP connections                     |
-| Get-CimProcess          | Get running processes                           |
-| Get-CimScheduledTask    | Get scheduled tasks                             |
-| Get-CimSecurityHealth   | Get the status of security softwares            |
-| Get-CimService          | Get Windows services                            |
-| Get-CredentialFile      | Get credentials from common files               |
-| Get-CredentialRegistry  | Get credentials from common registry keys       |
-| Get-LogonEvent          | Get logon events in Windows Security logs       |
-| Get-PowershellHistory   | Get Powershell history files                    |
-| Get-PowershellProfile   | Get Powershell profile files                    |
+| Function                | Description                                          |
+| ----------------------- | ---------------------------------------------------- |
+| Get-CimAsepLogon        | Get AutoStart Extension Points related to logon      |
+| Get-CimAsepWmi          | Get WMI persistences                                 |
+| Get-CimDNSCache         | Get DNS cache entries                                |
+| Get-CimDriver           | Get Windows drivers                                  |
+| Get-CimNetTCPConnection | Get current TCP connections                          |
+| Get-CimProcess          | Get running processes                                |
+| Get-CimScheduledTask    | Get scheduled tasks                                  |
+| Get-CimSecurityHealth   | Get the status of security softwares                 |
+| Get-CimService          | Get Windows services                                 |
+| Get-CredentialFile      | Get credentials from common files                    |
+| Get-CredentialRegistry  | Get credentials from common registry keys            |
+| Get-EventLogon          | Get logon events in Windows Security logs            |
+| Get-EventSvcCreation    | Get service creation events in Windows Security logs |
+| Get-PowershellHistory   | Get Powershell history files                         |
+| Get-PowershellProfile   | Get Powershell profile files                         |
 
 
 ## Examples

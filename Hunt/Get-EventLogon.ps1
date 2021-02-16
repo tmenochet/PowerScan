@@ -1,4 +1,4 @@
-function Get-LogonEvent {
+Function Get-EventLogon {
 <#
 .SYNOPSIS
     Get logon events on a remote computer.
@@ -7,7 +7,7 @@ function Get-LogonEvent {
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-LogonEvent queries remote host for logon events (optionally matching a target user).
+    Get-EventLogon queries remote host for logon events (optionally matching a target user).
 
 .PARAMETER ComputerName
     Specifies the host to query for logon events.
@@ -22,7 +22,7 @@ function Get-LogonEvent {
     Specifies the maximal number of events to retrieve for the target user, defaults to 10
 
 .EXAMPLE
-    PS C:\> Get-LogonEvent -Identity john.doe -ComputerName DC.ADATUM.CORP -Credential ADATUM\Administrator
+    PS C:\> Get-EventLogon -Identity john.doe -ComputerName DC.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
     Param (
@@ -68,7 +68,7 @@ function Get-LogonEvent {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
-                $events.Add($(ParseLogonEvent($XML))) | Out-Null
+                $events.Add($(ParseEventLogon($XML))) | Out-Null
             }
         }
     }
@@ -77,7 +77,7 @@ function Get-LogonEvent {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
-                $events.Add($(ParseLogonEvent($XML))) | Out-Null
+                $events.Add($(ParseEventLogon($XML))) | Out-Null
             }
         }
     }
@@ -90,7 +90,7 @@ function Get-LogonEvent {
     }
 }
 
-function Local:ParseLogonEvent($XML) {
+Function Local:ParseEventLogon($XML) {
     $obj = [pscustomobject] @{
         ComputerName = $XML.Event.System.Computer                       # Computer
         UserName = $XML.Event.EventData.Data[5].'#text'                 # TargetUserName

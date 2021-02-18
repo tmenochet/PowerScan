@@ -10,7 +10,7 @@ Function Get-EventLogon {
     Get-EventLogon queries remote host for logon events (optionally matching a target user).
 
 .PARAMETER ComputerName
-    Specifies the host to query for logon events.
+    Specifies the host to query for events.
 
 .PARAMETER Credential
     Specifies the privileged account to use.
@@ -18,8 +18,11 @@ Function Get-EventLogon {
 .PARAMETER Identity
     Specifies a target user to look for in the logon events.
 
+.PARAMETER All
+    Disables default behaviour that groups events by username or by source address for a targeted user.
+
 .PARAMETER Limit
-    Specifies the maximal number of events to retrieve for the target user, defaults to 10
+    Specifies the maximal number of events to retrieve, defaults to 10
 
 .EXAMPLE
     PS C:\> Get-EventLogon -Identity john.doe -ComputerName DC.ADATUM.CORP -Credential ADATUM\Administrator
@@ -34,6 +37,9 @@ Function Get-EventLogon {
         [String]
         $Identity,
 
+        [Switch]
+        $All,
+
         [ValidateNotNullOrEmpty()]
         [Int32]
         $Limit = 10,
@@ -44,7 +50,7 @@ Function Get-EventLogon {
         $Credential = [System.Management.Automation.PSCredential]::Empty
     )
 
-    $events = New-Object System.Collections.ArrayList
+    $events = New-Object Collections.ArrayList
     if ($Identity) {
         $filterXPath = "*[System[EventID=4624] and EventData[Data[@Name='TargetUserName']='$Identity']]"
     }
@@ -64,7 +70,7 @@ Function Get-EventLogon {
     if ($Credential.UserName) {
         $username = $Credential.UserName
         $password = $Credential.GetNetworkCredential().Password
-        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /format:XML /count:$Limit | ForEach {
+        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /format:XML /count:$Limit /rd | ForEach-Object {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
@@ -73,7 +79,7 @@ Function Get-EventLogon {
         }
     }
     else {
-        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /format:XML /count:$Limit | ForEach {
+        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /format:XML /count:$Limit /rd | ForEach-Object {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
@@ -82,7 +88,10 @@ Function Get-EventLogon {
         }
     }
 
-    if ($Identity) {
+    if ($All) {
+        $events
+    }
+    elseif ($Identity) {
         $events | Sort-Object -Property 'IpAddress' -Unique
     }
     else {
@@ -92,7 +101,8 @@ Function Get-EventLogon {
 
 Function Local:ParseEventLogon($XML) {
     $obj = [pscustomobject] @{
-        ComputerName = $XML.Event.System.Computer                       # Computer
+        ComputerName = $XML.Event.System.Computer
+        TimeCreated = $XML.Event.System.TimeCreated.SystemTime
         UserName = $XML.Event.EventData.Data[5].'#text'                 # TargetUserName
         DomainName = $XML.Event.EventData.Data[6].'#text'               # TargetDomainName
         SourceIPAddress = $XML.Event.EventData.Data[18].'#text'         # IpAddress

@@ -15,11 +15,8 @@ Function Get-EventSuspiciousPS {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
-.PARAMETER UserSID
-    Specifies a user SID to look for in the events.
-
-.PARAMETER InvertLogic
-    Queries events that do not match specified UserSID.
+.PARAMETER Limit
+    Specifies the maximal number of events to retrieve, defaults to 10
 
 .PARAMETER RecordID
     Specifies the event's RecordId to look for.
@@ -27,11 +24,14 @@ Function Get-EventSuspiciousPS {
 .PARAMETER ProcessID
     Specifies a ProcessId to look for in the events.
 
-.PARAMETER Limit
-    Specifies the maximal number of events to retrieve, defaults to 10
+.PARAMETER SubjectSID
+    Specifies a user SID to look for in the events.
+
+.PARAMETER InvertLogic
+    Queries events that do not match specified SubjectSID.
 
 .EXAMPLE
-    PS C:\> Get-EventSuspiciousPS -UserSID S-1-5-18 -InvertLogic -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
+    PS C:\> Get-EventSuspiciousPS -SubjectSID S-1-5-18 -InvertLogic -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
     [CmdletBinding()]
@@ -41,11 +41,13 @@ Function Get-EventSuspiciousPS {
         $ComputerName = $env:USERDOMAIN,
 
         [ValidateNotNullOrEmpty()]
-        [String]
-        $UserSID,
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty,
 
-        [switch]
-        $InvertLogic,
+        [ValidateNotNullOrEmpty()]
+        [Int32]
+        $Limit = 10,
 
         [ValidateNotNullOrEmpty()]
         [Int32]
@@ -56,21 +58,19 @@ Function Get-EventSuspiciousPS {
         $ProcessID,
 
         [ValidateNotNullOrEmpty()]
-        [Int32]
-        $Limit = 10,
+        [String]
+        $SubjectSID,
 
-        [ValidateNotNullOrEmpty()]
-        [Management.Automation.PSCredential]
-        [Management.Automation.Credential()]
-        $Credential = [Management.Automation.PSCredential]::Empty
+        [switch]
+        $InvertLogic
     )
 
-    if ($UserSID) {
+    if ($SubjectSID) {
         if ($InvertLogic) {
-            $filterXPath = "*[System[(EventID=4104 and Level>=3) and Security[@UserID!='$UserSID']]]"
+            $filterXPath = "*[System[(EventID=4104 and Level>=3) and Security[@UserID!='$SubjectSID']]]"
         }
         else {
-            $filterXPath = "*[System[(EventID=4104 and Level>=3) and Security[@UserID='$UserSID']]]"
+            $filterXPath = "*[System[(EventID=4104 and Level>=3) and Security[@UserID='$SubjectSID']]]"
         }
     }
     elseif ($RecordID) {
@@ -94,10 +94,10 @@ Function Get-EventSuspiciousPS {
         Write-Output ([pscustomobject] @{
             ComputerName = $_.MachineName
             TimeCreated  = $_.TimeCreated
-            EventId      = $_.Id
-            RecordId     = $_.RecordId
-            UserSid      = $_.UserId
-            ProcessId    = $_.ProcessId
+            EventID      = $_.Id
+            RecordID     = $_.RecordId
+            SubjectSID   = $_.UserId
+            ProcessID    = $_.ProcessId
             Level        = $_.LevelDisplayName
             Category     = $_.TaskDisplayName
             ScriptBlock  = ($_.Message -creplace '(?m)^\s*\r?\n','').Split("`n") | Select-Object -Skip 1

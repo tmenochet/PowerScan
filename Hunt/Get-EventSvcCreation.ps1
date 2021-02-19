@@ -15,47 +15,48 @@ Function Get-EventSvcCreation {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
-.PARAMETER AuthorSID
-    Specifies a service's author SID to look for in the events.
-
-.PARAMETER InvertLogic
-    Queries events that do not match specified AuthorSID.
-
 .PARAMETER Limit
     Specifies the maximal number of events to retrieve, defaults to 10
 
+.PARAMETER SubjectSID
+    Specifies a service's author SID to look for in the events.
+
+.PARAMETER InvertLogic
+    Queries events that do not match specified SubjectSID.
+
 .EXAMPLE
-    PS C:\> Get-EventSvcCreation -AuthorSID S-1-5-18 -InvertLogic -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
+    PS C:\> Get-EventSvcCreation -SubjectSID S-1-5-18 -InvertLogic -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
+    [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
         [string]
         $ComputerName = $env:USERDOMAIN,
 
         [ValidateNotNullOrEmpty()]
-        [String]
-        $AuthorSID,
-
-        [switch]
-        $InvertLogic,
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty,
 
         [ValidateNotNullOrEmpty()]
         [Int32]
         $Limit = 10,
 
         [ValidateNotNullOrEmpty()]
-        [Management.Automation.PSCredential]
-        [Management.Automation.Credential()]
-        $Credential = [Management.Automation.PSCredential]::Empty
+        [String]
+        $SubjectSID,
+
+        [switch]
+        $InvertLogic
     )
 
-    if ($AuthorSID) {
+    if ($SubjectSID) {
         if ($InvertLogic) {
-            $filterXPath = "*[System[EventID=7045] and System[Security[@UserID!='$AuthorSID']]]"
+            $filterXPath = "*[System[EventID=7045] and System[Security[@UserID!='$SubjectSID']]]"
         }
         else {
-            $filterXPath = "*[System[EventID=7045] and System[Security[@UserID='$AuthorSID']]]"
+            $filterXPath = "*[System[EventID=7045] and System[Security[@UserID='$SubjectSID']]]"
         }
     }
     else {
@@ -64,12 +65,12 @@ Function Get-EventSvcCreation {
     if ($Credential.UserName) {
         $username = $Credential.UserName
         $password = $Credential.GetNetworkCredential().Password
-        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /format:XML /count:$Limit /rd | ForEach-Object {
+        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /format:XML /count:$Limit /rd /uni | ForEach-Object {
             Write-Output (ParseEventSvcCreation([xml]($_)))
         }
     }
     else {
-        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /format:XML /count:$Limit /rd | ForEach-Object {
+        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /format:XML /count:$Limit /rd /uni | ForEach-Object {
             Write-Output (ParseEventSvcCreation([xml]($_)))
         }
     }
@@ -77,14 +78,15 @@ Function Get-EventSvcCreation {
 
 Function Local:ParseEventSvcCreation($XML) {
     $obj = [pscustomobject] @{
-        ComputerName    = $XML.Event.System.Computer
-        AuthorSID       = $XML.Event.System.Security.UserID
-        TimeCreated     = $XML.Event.System.TimeCreated.SystemTime
-        ServiceName     = $XML.Event.EventData.Data[0].'#text'      # ServiceName
-        ExecutablePath  = $XML.Event.EventData.Data[1].'#text'      # ImagePath
-        UserId          = $XML.Event.EventData.Data[4].'#text'      # AccountName
-        ServiceType     = $XML.Event.EventData.Data[2].'#text'      # ServiceType
-        StartType       = $XML.Event.EventData.Data[3].'#text'      # StartType
+        ComputerName   = $XML.Event.System.Computer
+        TimeCreated    = $XML.Event.System.TimeCreated.SystemTime
+        EventID        = $XML.Event.System.EventID.'#text'
+        SubjectSID     = $XML.Event.System.Security.UserID
+        ServiceName    = $XML.Event.EventData.Data[0].'#text'  # ServiceName
+        ExecutablePath = $XML.Event.EventData.Data[1].'#text'  # ImagePath
+        RunAs          = $XML.Event.EventData.Data[4].'#text'  # AccountName
+        ServiceType    = $XML.Event.EventData.Data[2].'#text'  # ServiceType
+        StartType      = $XML.Event.EventData.Data[3].'#text'  # StartType
     }
     return $obj
 }

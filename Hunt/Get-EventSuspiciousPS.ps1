@@ -7,7 +7,7 @@ Function Get-EventSuspiciousPS {
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-EventSuspiciousPS queries remote host for Event ID 4104 (optionally matching the user SID who run the script).
+    Get-EventSuspiciousPS queries remote host for Event ID 4104 (optionally matching criteria).
 
 .PARAMETER ComputerName
     Specifies the host to query for events.
@@ -21,6 +21,12 @@ Function Get-EventSuspiciousPS {
 .PARAMETER InvertLogic
     Queries events that do not match specified UserSID.
 
+.PARAMETER RecordID
+    Specifies the event's RecordId to look for.
+
+.PARAMETER ProcessID
+    Specifies a ProcessId to look for in the events.
+
 .PARAMETER Limit
     Specifies the maximal number of events to retrieve, defaults to 10
 
@@ -28,6 +34,7 @@ Function Get-EventSuspiciousPS {
     PS C:\> Get-EventSuspiciousPS -UserSID S-1-5-18 -InvertLogic -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
+    [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
         [string]
@@ -42,6 +49,14 @@ Function Get-EventSuspiciousPS {
 
         [ValidateNotNullOrEmpty()]
         [Int32]
+        $RecordID,
+
+        [ValidateNotNullOrEmpty()]
+        [Int32]
+        $ProcessID,
+
+        [ValidateNotNullOrEmpty()]
+        [Int32]
         $Limit = 10,
 
         [ValidateNotNullOrEmpty()]
@@ -52,11 +67,17 @@ Function Get-EventSuspiciousPS {
 
     if ($UserSID) {
         if ($InvertLogic) {
-            $filterXPath = "*[System[(EventID=4104 and Level>=3)] and System[Security[@UserID!='$UserSID']]]"
+            $filterXPath = "*[System[(EventID=4104 and Level>=3) and Security[@UserID!='$UserSID']]]"
         }
         else {
-            $filterXPath = "*[System[(EventID=4104 and Level>=3)] and System[Security[@UserID='$UserSID']]]"
+            $filterXPath = "*[System[(EventID=4104 and Level>=3) and Security[@UserID='$UserSID']]]"
         }
+    }
+    elseif ($RecordID) {
+        $filterXPath = "*[System[(EventID=4104 and EventRecordID=$RecordID)]]"
+    }
+    elseif ($ProcessID) {
+        $filterXPath = "*[System[(EventID=4104 and Execution[@ProcessID=$ProcessID])]]"
     }
     else {
         $filterXPath = "*[System[(EventID=4104 and Level>=3)]]"
@@ -69,7 +90,7 @@ Function Get-EventSuspiciousPS {
         'Credential' = $Credential
         'ComputerName' = $ComputerName
     }
-    Get-WinEvent @params | ForEach {
+    Get-WinEvent @params -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Output ([pscustomobject] @{
             ComputerName = $_.MachineName
             TimeCreated  = $_.TimeCreated

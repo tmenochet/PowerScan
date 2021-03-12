@@ -35,6 +35,7 @@ Hunting functions require high privileges (typically administrator).
 | Function                  | Description                                               |
 | ------------------------- | --------------------------------------------------------- |
 | Get-CimAsepLogon          | Get AutoStart Extension Points related to logon           |
+| Get-CimAsepStartup        | Get common AutoStart Extension Points related to logon    |
 | Get-CimAsepWmi            | Get WMI persistences                                      |
 | Get-CimDNSCache           | Get DNS cache entries                                     |
 | Get-CimDriver             | Get Windows drivers                                       |

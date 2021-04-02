@@ -15,39 +15,40 @@ Function Get-EventLogon {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
+.PARAMETER Limit
+    Specifies the maximal number of events to retrieve, defaults to 10
+
 .PARAMETER Identity
     Specifies a target user to look for in the logon events.
 
 .PARAMETER All
     Disables default behaviour that groups events by username or by source address for a targeted user.
 
-.PARAMETER Limit
-    Specifies the maximal number of events to retrieve, defaults to 10
-
 .EXAMPLE
     PS C:\> Get-EventLogon -Identity john.doe -ComputerName DC.ADATUM.CORP -Credential ADATUM\Administrator
 #>
 
+    [CmdletBinding()]
     Param (
         [ValidateNotNullOrEmpty()]
         [string]
         $ComputerName = $env:USERDOMAIN,
 
         [ValidateNotNullOrEmpty()]
-        [String]
-        $Identity,
-
-        [Switch]
-        $All,
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential = [System.Management.Automation.PSCredential]::Empty,
 
         [ValidateNotNullOrEmpty()]
         [Int32]
         $Limit = 10,
 
         [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty
+        [string]
+        $Identity,
+
+        [Switch]
+        $All
     )
 
     $events = New-Object Collections.ArrayList
@@ -74,7 +75,7 @@ Function Get-EventLogon {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
-                $events.Add($(ParseEventLogon($XML))) | Out-Null
+                $events.Add((ParseEventLogon($XML))) | Out-Null
             }
         }
     }
@@ -83,7 +84,7 @@ Function Get-EventLogon {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
-                $events.Add($(ParseEventLogon($XML))) | Out-Null
+                $events.Add((ParseEventLogon($XML))) | Out-Null
             }
         }
     }
@@ -101,14 +102,15 @@ Function Get-EventLogon {
 
 Function Local:ParseEventLogon($XML) {
     $obj = [pscustomobject] @{
-        ComputerName = $XML.Event.System.Computer
-        TimeCreated = $XML.Event.System.TimeCreated.SystemTime
-        UserName = $XML.Event.EventData.Data[5].'#text'                 # TargetUserName
-        DomainName = $XML.Event.EventData.Data[6].'#text'               # TargetDomainName
-        SourceIPAddress = $XML.Event.EventData.Data[18].'#text'         # IpAddress
-        SourceHostName = $XML.Event.EventData.Data[11].'#text'          # WorkstationName
-        LogonType = $XML.Event.EventData.Data[8].'#text'                # LogonType
-        AuthenticationPackage = $XML.Event.EventData.Data[10].'#text'   # AuthenticationPackageName
+        ComputerName          = $XML.Event.System.Computer
+        TimeCreated           = $XML.Event.System.TimeCreated.SystemTime
+        EventID               = $XML.Event.System.EventID
+        UserName              = $XML.Event.EventData.Data[5].'#text'  # TargetUserName
+        DomainName            = $XML.Event.EventData.Data[6].'#text'  # TargetDomainName
+        SourceIPAddress       = $XML.Event.EventData.Data[18].'#text' # IpAddress
+        SourceHostName        = $XML.Event.EventData.Data[11].'#text' # WorkstationName
+        LogonType             = $XML.Event.EventData.Data[8].'#text'  # LogonType
+        AuthenticationPackage = $XML.Event.EventData.Data[10].'#text' # AuthenticationPackageName
     }
     return $obj
 }

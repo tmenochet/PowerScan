@@ -30,6 +30,9 @@ Function Invoke-PowerScan {
 .PARAMETER Credential
     Specifies the account to use for LDAP bind.
 
+.PARAMETER LAPS
+    Adds LAPS credentials to script block parameters (experimental).
+
 .PARAMETER Threads
     Specifies the number of threads to use, defaults to 10.
 
@@ -61,7 +64,7 @@ Function Invoke-PowerScan {
 
         [ValidateNotNullOrEmpty()]
         [Hashtable]
-        $ScriptParameters,
+        $ScriptParameters = @{},
 
         [ValidateNotNullOrEmpty()]
         [string]
@@ -83,6 +86,9 @@ Function Invoke-PowerScan {
         [Management.Automation.PSCredential]
         [Management.Automation.Credential()]
         $Credential = [Management.Automation.PSCredential]::Empty,
+
+        [Switch]
+        $LAPS,
 
         [ValidateNotNullOrEmpty()]
         [Int]
@@ -113,8 +119,8 @@ Function Invoke-PowerScan {
     if (($Domain = $DomainComputers) -or ($Domain = $DomainControllers)) {
         $searchString = "LDAP://$Domain/RootDSE"
         $domainObject = New-Object DirectoryServices.DirectoryEntry($searchString, $null, $null)
-        $rootDN = $domainObject.rootDomainNamingContext[0]
-        $ADSpath = "LDAP://$Domain/$rootDN"
+        $defaultNC = $domainObject.defaultNamingContext[0]
+        $ADSpath = "LDAP://$Domain/$defaultNC"
         if ($DomainControllers) {
             $filter = "(userAccountControl:1.2.840.113556.1.4.803:=8192)"
         }
@@ -127,6 +133,74 @@ Function Invoke-PowerScan {
                 $hostList.Add($($computer.dnshostname).ToString()) | Out-Null
             }
         }
+    }
+
+    if ($LAPS) {
+        # Pass credential to ScriptBlock for Get-LapsCredential call
+        $ScriptParameters.Add('Credential', $Credential)
+
+        # Get-LapsCredential call definition
+        $lapsBlock = [Environment]::NewLine
+        $lapsBlock += 'if ($lapsCreds = Get-LapsCredential -ADSPath "' + $ADSpath + '" -Credential $Credential -ComputerName $' + $ComputerArgument + ') {$Credential = $lapsCreds}'
+        $lapsBlock += [Environment]::NewLine
+
+        # Modify script block
+        $count = 0
+        try {
+            $finalBlock = $ScriptBlock.Ast.Body.Extent.Text.Substring(1, $ScriptBlock.Ast.Body.ParamBlock.Extent.StartOffset - $ScriptBlock.Ast.Body.Extent.StartOffset - 1)
+        }
+        catch {
+            $finalBlock = ''
+        }
+        if ($ScriptBlock.Ast.Body.ParamBlock) {
+            # Add PARAM block
+            $finalBlock += $ScriptBlock.Ast.Body.ParamBlock.ToString()
+            $finalBlock += [Environment]::NewLine
+        }
+        if ($ScriptBlock.Ast.Body.BeginBlock) {
+            # Modify BEGIN block
+            $finalBlock += 'BEGIN {'
+            $finalBlock += $lapsBlock
+            foreach ($block in $ScriptBlock.Ast.Body.BeginBlock.Statements) {
+                $finalBlock += $block.ToString()
+                $finalBlock += [Environment]::NewLine
+            }
+            $finalBlock += '}'
+            $finalBlock += [Environment]::NewLine
+            $count++
+        }
+        if ($ScriptBlock.Ast.Body.ProcessBlock) {
+            if ($count) {
+                # Add PROCESS block
+                $finalBlock += $ScriptBlock.Ast.Body.ProcessBlock.ToString()
+            }
+            else {
+                # Modify PROCESS block
+                $finalBlock += 'PROCESS {'
+                $finalBlock += $lapsBlock
+                foreach ($block in $ScriptBlock.Ast.Body.ProcessBlock.Statements) {
+                    $finalBlock += $block.ToString()
+                    $finalBlock += [Environment]::NewLine
+                }
+                $finalBlock += '}'
+            }
+            $finalBlock += [Environment]::NewLine
+            $count++
+        }
+        if ($ScriptBlock.Ast.Body.EndBlock) {
+            if ($count) {
+                # Add END block
+                $finalBlock += $ScriptBlock.Ast.Body.EndBlock.ToString()
+            }
+            else {
+                # Case where BEGIN/PROCESS/END blocks are not specified
+                $finalBlock += $lapsBlock
+                $finalBlock += $ScriptBlock.ToString().Substring($ScriptBlock.Ast.Body.ParamBlock.Extent.StartOffset - $ScriptBlock.Ast.Body.Extent.StartOffset + $ScriptBlock.Ast.Body.ParamBlock.Extent.Text.Length)
+            }
+            $finalBlock += [Environment]::NewLine
+            $count++
+        }
+        $ScriptBlock = [scriptblock]::Create($finalBlock)
     }
 
     New-ThreadedFunction -ScriptBlock $ScriptBlock -ScriptParameters $ScriptParameters -Collection $hostList -CollectionParameter $ComputerArgument -Threads $Threads | Where-Object {$_} | ForEach-Object {
@@ -181,71 +255,6 @@ Function Local:New-IPv4RangeFromCIDR {
         $hostList.Add($address.IPAddressToString) | Out-Null
     }
     return $hostList
-}
-
-Function Local:Get-LdapObject {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [String]
-        $ADSpath,
-
-        [ValidateNotNullOrEmpty()]
-        [String]
-        $SearchScope = 'Subtree',
-
-        [ValidateNotNullOrEmpty()]
-        [String]
-        $Filter = '(objectClass=*)',
-
-        [ValidateNotNullOrEmpty()]
-        [String[]]
-        $Properties = '*',
-
-        [ValidateRange(1,10000)] 
-        [Int]
-        $PageSize = 200,
-
-        [ValidateNotNullOrEmpty()]
-        [Management.Automation.PSCredential]
-        [Management.Automation.Credential()]
-        $Credential = [Management.Automation.PSCredential]::Empty
-    )
-
-    if ($Credential.UserName) {
-        $domainObject = New-Object DirectoryServices.DirectoryEntry($ADSpath, $Credential.UserName, $Credential.GetNetworkCredential().Password)
-        $searcher = New-Object DirectoryServices.DirectorySearcher($domainObject)
-    }
-    else {
-        $searcher = New-Object DirectoryServices.DirectorySearcher([ADSI]$ADSpath)
-    }
-    $searcher.SearchScope = $SearchScope
-    $searcher.PageSize = $PageSize
-    $searcher.CacheResults = $false
-    $searcher.filter = $Filter
-    $propertiesToLoad = $Properties | ForEach-Object {$_.Split(',')}
-    $searcher.PropertiesToLoad.AddRange($propertiesToLoad) | Out-Null
-    try {
-        $results = $searcher.FindAll()
-        $results | Where-Object {$_} | ForEach-Object {
-            $objectProperties = @{}
-            $p = $_.Properties
-            $p.PropertyNames | ForEach-Object {
-                if (($_ -ne 'adspath') -And ($p[$_].count -eq 1)) {
-                    $objectProperties[$_] = $p[$_][0]
-                }
-                elseif ($_ -ne 'adspath') {
-                    $objectProperties[$_] = $p[$_]
-                }
-            }
-            New-Object -TypeName PSObject -Property ($objectProperties)
-        }
-        $results.dispose()
-        $searcher.dispose()
-    }
-    catch {
-        Write-Error $_ -ErrorAction Stop
-    }
 }
 
 # Adapted from PowerView by @harmj0y and @mattifestation
@@ -342,12 +351,18 @@ Function Local:New-ThreadedFunction {
                 PS = $PowerShell
                 Output = $Output
                 Result = $Method.Invoke($PowerShell, @($null, [Management.Automation.PSDataCollection[Object]]$Output))
+                Element = $Element
             }
         }
     }
 
     END {
         Write-Verbose "[THREAD] Executing threads"
+
+        # Add element in each job output
+        foreach ($Job in $Jobs) {
+            $Job.Output | Add-Member -Force -MemberType NoteProperty -Name $CollectionParameter -Value $Job.Element
+        }
 
         # Continuously loop through each job queue, consuming output as appropriate
         do {
@@ -358,7 +373,7 @@ Function Local:New-ThreadedFunction {
         }
         while (($Jobs | Where-Object {-not $_.Result.IsCompleted}).Count -gt 0)
 
-        $SleepSeconds = 10
+        $SleepSeconds = 100
         Write-Verbose "[THREAD] Waiting $SleepSeconds seconds for final cleanup..."
 
         # Cleanup
@@ -445,3 +460,225 @@ Function Local:Out-CsvFile {
         $CSVStream.Dispose()
     }
 }
+
+Function Local:Get-LdapObject {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ADSpath,
+
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $SearchScope = 'Subtree',
+
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $Filter = '(objectClass=*)',
+
+        [ValidateNotNullOrEmpty()]
+        [String[]]
+        $Properties = '*',
+
+        [ValidateRange(1,10000)] 
+        [Int]
+        $PageSize = 200,
+
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
+    )
+
+    if ($Credential.UserName) {
+        $domainObject = New-Object DirectoryServices.DirectoryEntry($ADSpath, $Credential.UserName, $Credential.GetNetworkCredential().Password)
+        $searcher = New-Object DirectoryServices.DirectorySearcher($domainObject)
+    }
+    else {
+        $searcher = New-Object DirectoryServices.DirectorySearcher([ADSI]$ADSpath)
+    }
+    $searcher.SearchScope = $SearchScope
+    $searcher.PageSize = $PageSize
+    $searcher.CacheResults = $false
+    $searcher.filter = $Filter
+    $propertiesToLoad = $Properties | ForEach-Object {$_.Split(',')}
+    $searcher.PropertiesToLoad.AddRange($propertiesToLoad) | Out-Null
+    try {
+        $results = $searcher.FindAll()
+        $results | Where-Object {$_} | ForEach-Object {
+            $objectProperties = @{}
+            $p = $_.Properties
+            $p.PropertyNames | ForEach-Object {
+                if (($_ -ne 'adspath') -And ($p[$_].count -eq 1)) {
+                    $objectProperties[$_] = $p[$_][0]
+                }
+                elseif ($_ -ne 'adspath') {
+                    $objectProperties[$_] = $p[$_]
+                }
+            }
+            New-Object -TypeName PSObject -Property ($objectProperties)
+        }
+        $results.dispose()
+        $searcher.dispose()
+    }
+    catch {
+        Write-Error $_ -ErrorAction Stop
+    }
+}
+
+Function Local:Get-LapsCredential {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ADSpath,
+
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ComputerName
+    )
+
+    BEGIN {
+        if ($Credential.UserName) {
+            $logonToken = Invoke-UserImpersonation -Credential $Credential
+        }
+    }
+
+    PROCESS {
+        $lapsCredential = $null
+        $filter = "(&(sAMAccountType=805306369)(dnshostname=$ComputerName)(ms-MCS-AdmPwd=*))"
+        Get-LdapObject -ADSpath $ADSpath -Filter $filter -Credential $Credential | ForEach-Object {
+            if ($password = $_.'ms-MCS-AdmPwd') {
+                $lapsPassword = ConvertTo-SecureString $password -AsPlainText -Force
+                # Search for local group name for SID S-1-5-32-544
+                $groupName = ''
+                $computerProvider = [ADSI] "WinNT://$ComputerName,computer"
+                $computerProvider.psbase.children | Where-Object { $_.psbase.schemaClassName -eq 'group' } | ForEach-Object {
+                    $localGroup = [ADSI] $_
+                    $groupSid = (New-Object Security.Principal.SecurityIdentifier($localGroup.InvokeGet('ObjectSID'), 0)).Value
+                    if ($groupSid -eq 'S-1-5-32-544') {
+                        $groupName = $localGroup.InvokeGet('Name')
+                        break
+                    }
+                }
+                # Search for local user name for RID 500
+                $lapsUsername = 'Administrator' # default value
+                if ($groupName) {
+                    $groupProvider = [ADSI] "WinNT://$ComputerName/$groupName,group"
+                    $groupProvider.psbase.Invoke('Members') | ForEach-Object {
+                        $localUser = [ADSI] $_
+                        $userSid = (New-Object Security.Principal.SecurityIdentifier($localUser.InvokeGet('ObjectSID'),0)).Value
+                        if ($userSid -match '.*-500') {
+                            $lapsUsername = $localUser.InvokeGet('Name')
+                            break
+                        }
+                    }
+                }
+                $lapsCredential = New-Object Management.Automation.PSCredential ($lapsUsername, $lapsPassword)
+                break
+            }
+        }
+    }
+
+    END {
+        if ($logonToken) {
+            Invoke-RevertToSelf -TokenHandle $logonToken
+        }
+        return $lapsCredential
+    }
+}
+
+# Adapted from PowerView by @harmj0y and @mattifestation
+Function Local:Invoke-UserImpersonation {
+    [OutputType([IntPtr])]
+    [CmdletBinding(DefaultParameterSetName = 'Credential')]
+    Param(
+        [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
+        [Management.Automation.PSCredential]
+        [Management.Automation.CredentialAttribute()]
+        $Credential,
+
+        [Parameter(Mandatory = $True, ParameterSetName = 'TokenHandle')]
+        [ValidateNotNull()]
+        [IntPtr]
+        $TokenHandle,
+
+        [Switch]
+        $Quiet
+    )
+
+    if (([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') -and (-not $PSBoundParameters['Quiet'])) {
+        Write-Warning "[UserImpersonation] powershell.exe is not currently in a single-threaded apartment state, token impersonation may not work."
+    }
+
+    if ($PSBoundParameters['TokenHandle']) {
+        $LogonTokenHandle = $TokenHandle
+    }
+    else {
+        $LogonTokenHandle = [IntPtr]::Zero
+        $NetworkCredential = $Credential.GetNetworkCredential()
+        $UserDomain = $NetworkCredential.Domain
+        $UserName = $NetworkCredential.UserName
+        Write-Verbose "[UserImpersonation] Executing LogonUser() with user: $($UserDomain)\$($UserName)"
+
+        if (-not [Advapi32]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
+            $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            throw "[UserImpersonation] LogonUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+        }
+    }
+
+    if (-not [Advapi32]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
+        throw "[UserImpersonation] ImpersonateLoggedOnUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+    }
+    $LogonTokenHandle
+}
+
+# Adapted from PowerView by @harmj0y and @mattifestation
+Function Local:Invoke-RevertToSelf {
+    [CmdletBinding()]
+    Param(
+        [ValidateNotNull()]
+        [IntPtr]
+        $TokenHandle
+    )
+
+    if ($PSBoundParameters['TokenHandle']) {
+        Write-Verbose "[RevertToSelf] Reverting token impersonation and closing LogonUser() token handle"
+        [Kernel32]::CloseHandle($TokenHandle) | Out-Null
+    }
+    if (-not [Advapi32]::RevertToSelf()) {
+        $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "[RevertToSelf] RevertToSelf() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+    }
+}
+
+Add-Type @"
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+public static class Advapi32 {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool LogonUserA(
+        string lpszUserName, 
+        string lpszDomain,
+        string lpszPassword,
+        int dwLogonType, 
+        int dwLogonProvider,
+        ref IntPtr  phToken
+    );
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool RevertToSelf();
+}
+public static class Kernel32 {
+    [DllImport("kernel32.dll", SetLastError=true)]
+	public static extern bool CloseHandle(IntPtr hObject);
+}
+"@

@@ -120,14 +120,14 @@ Function Invoke-PowerScan {
         $searchString = "LDAP://$Domain/RootDSE"
         $domainObject = New-Object DirectoryServices.DirectoryEntry($searchString, $null, $null)
         $defaultNC = $domainObject.defaultNamingContext[0]
-        $ADSpath = "LDAP://$Domain/$defaultNC"
+        $adsPath = "LDAP://$Domain/$defaultNC"
         if ($DomainControllers) {
             $filter = "(userAccountControl:1.2.840.113556.1.4.803:=8192)"
         }
         else {
             $filter = "(&(samAccountType=805306369)(!userAccountControl:1.2.840.113556.1.4.803:=2))"
         }
-        $computers = Get-LdapObject -ADSpath $ADSpath -Filter $filter -Properties 'dnshostname' -Credential $Credential
+        $computers = Get-LdapObject -ADSpath $adsPath -Filter $filter -Properties 'dnshostname' -Credential $Credential
         foreach ($computer in $computers) {
             if ($computer.dnshostname) {
                 $hostList.Add($($computer.dnshostname).ToString()) | Out-Null
@@ -141,7 +141,7 @@ Function Invoke-PowerScan {
 
         # Get-LapsCredential call definition
         $lapsBlock = [Environment]::NewLine
-        $lapsBlock += 'if ($lapsCreds = Get-LapsCredential -ADSPath "' + $ADSpath + '" -Credential $Credential -ComputerName $' + $ComputerArgument + ') {$Credential = $lapsCreds}'
+        $lapsBlock += 'if ($lapsCreds = Get-LapsCredential -ADSPath "' + $adsPath + '" -Credential $Credential -ComputerName $' + $ComputerArgument + ') {$Credential = $lapsCreds}'
         $lapsBlock += [Environment]::NewLine
 
         # Modify script block
@@ -262,7 +262,7 @@ Function Local:New-ThreadedFunction {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
     Param(
-        [Parameter(Mandatory = $True, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $True)]
+        [Parameter(Mandatory = $True)]
         [String[]]
         $Collection,
 
@@ -390,7 +390,6 @@ Function Local:New-ThreadedFunction {
     }
 }
 
-# Adapted from PowerView by @harmj0y and @mattifestation
 Function Local:Out-CsvFile {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '')]
     [CmdletBinding()]
@@ -399,12 +398,11 @@ Function Local:Out-CsvFile {
         [Management.Automation.PSObject[]]
         $InputObject,
 
-        [Parameter(Mandatory = $True, Position = 1)]
+        [Parameter(Mandatory = $True)]
         [ValidateNotNullOrEmpty()]
         [String]
         $Path,
 
-        [Parameter(Position = 2)]
         [ValidateNotNullOrEmpty()]
         [Char]
         $Delimiter = ';',
@@ -414,50 +412,50 @@ Function Local:Out-CsvFile {
     )
 
     BEGIN {
-        $OutputPath = [IO.Path]::GetFullPath($PSBoundParameters['Path'])
-        $Exists = [IO.File]::Exists($OutputPath)
+        $outputPath = [IO.Path]::GetFullPath($Path)
+        $exists = [IO.File]::Exists($outputPath)
 
         # Mutex so threaded code doesn't stomp on the output file
-        $Mutex = New-Object Threading.Mutex $False,'CSVMutex'
-        $null = $Mutex.WaitOne()
+        $mutex = New-Object Threading.Mutex $False,'CSVMutex'
+        $null = $mutex.WaitOne()
 
-        if ($PSBoundParameters['Append']) {
-            $FileMode = [IO.FileMode]::Append
+        if ($Append) {
+            $fileMode = [IO.FileMode]::Append
         }
         else {
-            $FileMode = [IO.FileMode]::Create
-            $Exists = $False
+            $fileMode = [IO.FileMode]::Create
+            $exists = $False
         }
 
-        $CSVStream = New-Object IO.FileStream($OutputPath, $FileMode, [IO.FileAccess]::Write, [IO.FileShare]::Read)
-        $CSVWriter = New-Object IO.StreamWriter($CSVStream)
-        $CSVWriter.AutoFlush = $True
+        $csvStream = New-Object IO.FileStream($outputPath, $fileMode, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        $csvWriter = New-Object IO.StreamWriter($csvStream)
+        $csvWriter.AutoFlush = $True
     }
 
     PROCESS {
-        foreach ($Entry in $InputObject) {
+        foreach ($entry in $InputObject) {
             # Expand any collection properties
-            $Entry = $Entry | % {
+            $entry = $entry | % {
                 $_.PSObject.Properties | % { $hash = @{} } { $hash.add($_.name, $_.value -join ", ") } { New-Object -TypeName psobject -Property $hash }
             }
-            $ObjectCSV = ConvertTo-Csv -InputObject $Entry -Delimiter $Delimiter -NoTypeInformation
+            $objectCSV = ConvertTo-Csv -InputObject $entry -Delimiter $Delimiter -NoTypeInformation
 
-            if (-not $Exists) {
+            if (-not $exists) {
                 # Output the object field names as well
-                $ObjectCSV | ForEach-Object { $CSVWriter.WriteLine($_) }
-                $Exists = $True
+                $objectCSV | ForEach-Object { $csvWriter.WriteLine($_) }
+                $exists = $True
             }
             else {
                 # Only output object field data
-                $ObjectCSV[1..($ObjectCSV.Length-1)] | ForEach-Object { $CSVWriter.WriteLine($_) }
+                $objectCSV[1..($objectCSV.Length-1)] | ForEach-Object { $csvWriter.WriteLine($_) }
             }
         }
     }
 
     END {
-        $Mutex.ReleaseMutex()
-        $CSVWriter.Dispose()
-        $CSVStream.Dispose()
+        $mutex.ReleaseMutex()
+        $csvWriter.Dispose()
+        $csvStream.Dispose()
     }
 }
 
@@ -594,52 +592,78 @@ Function Local:Get-LapsCredential {
     }
 }
 
-# Adapted from PowerView by @harmj0y and @mattifestation
-Function Local:Invoke-UserImpersonation {
-    [OutputType([IntPtr])]
-    [CmdletBinding(DefaultParameterSetName = 'Credential')]
-    Param(
-        [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
-        [Management.Automation.PSCredential]
-        [Management.Automation.CredentialAttribute()]
-        $Credential,
+Function Local:Get-DelegateType {
+    Param (
+        [Type[]]
+        $Parameters = (New-Object Type[](0)),
 
-        [Parameter(Mandatory = $True, ParameterSetName = 'TokenHandle')]
-        [ValidateNotNull()]
-        [IntPtr]
-        $TokenHandle,
-
-        [Switch]
-        $Quiet
+        [Type]
+        $ReturnType = [Void]
     )
-
-    if (([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') -and (-not $PSBoundParameters['Quiet'])) {
-        Write-Warning "[UserImpersonation] powershell.exe is not currently in a single-threaded apartment state, token impersonation may not work."
-    }
-
-    if ($PSBoundParameters['TokenHandle']) {
-        $LogonTokenHandle = $TokenHandle
-    }
-    else {
-        $LogonTokenHandle = [IntPtr]::Zero
-        $NetworkCredential = $Credential.GetNetworkCredential()
-        $UserDomain = $NetworkCredential.Domain
-        $UserName = $NetworkCredential.UserName
-        Write-Verbose "[UserImpersonation] Executing LogonUser() with user: $($UserDomain)\$($UserName)"
-
-        if (-not [Advapi32]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
-            $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            throw "[UserImpersonation] LogonUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
-        }
-    }
-
-    if (-not [Advapi32]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
-        throw "[UserImpersonation] ImpersonateLoggedOnUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
-    }
-    $LogonTokenHandle
+    $domain = [AppDomain]::CurrentDomain
+    $dynAssembly = New-Object Reflection.AssemblyName('ReflectedDelegate')
+    $assemblyBuilder = $domain.DefineDynamicAssembly($dynAssembly, [Reflection.Emit.AssemblyBuilderAccess]::Run)
+    $moduleBuilder = $assemblyBuilder.DefineDynamicModule('InMemoryModule', $false)
+    $typeBuilder = $moduleBuilder.DefineType('MyDelegateType', 'Class, Public, Sealed, AnsiClass, AutoClass', [MulticastDelegate])
+    $constructorBuilder = $typeBuilder.DefineConstructor('RTSpecialName, HideBySig, Public', [Reflection.CallingConventions]::Standard, $Parameters)
+    $constructorBuilder.SetImplementationFlags('Runtime, Managed')
+    $methodBuilder = $typeBuilder.DefineMethod('Invoke', 'Public, HideBySig, NewSlot, Virtual', $ReturnType, $Parameters)
+    $methodBuilder.SetImplementationFlags('Runtime, Managed')
+    Write-Output $typeBuilder.CreateType()
 }
 
-# Adapted from PowerView by @harmj0y and @mattifestation
+Function Local:Get-ProcAddress {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [String]
+        $Module,
+
+        [Parameter(Mandatory = $True)]
+        [String]
+        $Procedure
+    )
+    $systemAssembly = [AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GlobalAssemblyCache -And $_.Location.Split('\\')[-1].Equals('System.dll') }
+    $unsafeNativeMethods = $systemAssembly.GetType('Microsoft.Win32.UnsafeNativeMethods')
+    $getModuleHandle = $unsafeNativeMethods.GetMethod('GetModuleHandle')
+    $getProcAddress = $unsafeNativeMethods.GetMethod('GetProcAddress', [Type[]]@([Runtime.InteropServices.HandleRef], [String]))
+    $kern32Handle = $getModuleHandle.Invoke($null, @($Module))
+    $tmpPtr = New-Object IntPtr
+    $handleRef = New-Object Runtime.InteropServices.HandleRef($tmpPtr, $kern32Handle)
+    Write-Output $getProcAddress.Invoke($null, @([Runtime.InteropServices.HandleRef]$handleRef, $Procedure))
+}
+
+Function Local:Invoke-UserImpersonation {
+    Param(
+        [Parameter(Mandatory = $True)]
+        [Management.Automation.PSCredential]
+        [Management.Automation.CredentialAttribute()]
+        $Credential
+    )
+
+    $logonUserAddr = Get-ProcAddress Advapi32.dll LogonUserA
+    $logonUserDelegate = Get-DelegateType @([String], [String], [String], [UInt32], [UInt32], [IntPtr].MakeByRefType()) ([Bool])
+    $logonUser = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($logonUserAddr, $logonUserDelegate)
+
+    $impersonateLoggedOnUserAddr = Get-ProcAddress Advapi32.dll ImpersonateLoggedOnUser
+    $impersonateLoggedOnUserDelegate = Get-DelegateType @([IntPtr]) ([Bool])
+    $impersonateLoggedOnUser = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($impersonateLoggedOnUserAddr, $impersonateLoggedOnUserDelegate)
+
+    $logonTokenHandle = [IntPtr]::Zero
+    $networkCredential = $Credential.GetNetworkCredential()
+    $userDomain = $networkCredential.Domain
+    $userName = $networkCredential.UserName
+
+    if (-not $logonUser.Invoke($userName, $userDomain, $networkCredential.Password, 9, 3, [ref]$logonTokenHandle)) {
+        $lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "[UserImpersonation] LogonUser error: $(([ComponentModel.Win32Exception] $lastError).Message)"
+    }
+
+    if (-not $impersonateLoggedOnUser.Invoke($logonTokenHandle)) {
+        throw "[UserImpersonation] ImpersonateLoggedOnUser error: $(([ComponentModel.Win32Exception] $lastError).Message)"
+    }
+    Write-Output $logonTokenHandle
+}
+
 Function Local:Invoke-RevertToSelf {
     [CmdletBinding()]
     Param(
@@ -648,37 +672,19 @@ Function Local:Invoke-RevertToSelf {
         $TokenHandle
     )
 
-    if ($PSBoundParameters['TokenHandle']) {
-        Write-Verbose "[RevertToSelf] Reverting token impersonation and closing LogonUser() token handle"
-        [Kernel32]::CloseHandle($TokenHandle) | Out-Null
-    }
-    if (-not [Advapi32]::RevertToSelf()) {
-        $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw "[RevertToSelf] RevertToSelf() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
-    }
-}
+    $closeHandleAddr = Get-ProcAddress Kernel32.dll CloseHandle
+    $closeHandleDelegate = Get-DelegateType @([IntPtr]) ([Bool])
+    $closeHandle = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($closeHandleAddr, $closeHandleDelegate)
 
-Add-Type @"
-using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-public static class Advapi32 {
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool LogonUserA(
-        string lpszUserName, 
-        string lpszDomain,
-        string lpszPassword,
-        int dwLogonType, 
-        int dwLogonProvider,
-        ref IntPtr  phToken
-    );
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool RevertToSelf();
+    $revertToSelfAddr = Get-ProcAddress Advapi32.dll RevertToSelf
+    $revertToSelfDelegate = Get-DelegateType @() ([Bool])
+    $revertToSelf = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($revertToSelfAddr, $revertToSelfDelegate)
+
+    if ($PSBoundParameters['TokenHandle']) {
+        $closeHandle.Invoke($TokenHandle) | Out-Null
+    }
+    if (-not $revertToSelf.Invoke()) {
+        $lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "[RevertToSelf] Error: $(([ComponentModel.Win32Exception] $lastError).Message)"
+    }
 }
-public static class Kernel32 {
-    [DllImport("kernel32.dll", SetLastError=true)]
-	public static extern bool CloseHandle(IntPtr hObject);
-}
-"@

@@ -21,7 +21,7 @@ function Get-CimAsepWmi {
     Ensures host is up before run.
 
 .PARAMETER Protocol
-    Specifies the protocol to use.
+    Specifies the protocol to use, defaults to DCOM.
 
 .EXAMPLE
     PS C:\> Get-CimAsepWmi -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
@@ -115,6 +115,6 @@ function Local:Get-WmiInstance {
 
     Get-CimInstance -Namespace $Namespace -Class $Class -CimSession $CimSession -Verbose:$false
     Get-CimInstance -Namespace $Namespace -Class '__Namespace' -CimSession $CimSession -Verbose:$false | % {
-        Get-CimInstance -Namespace "$Namespace\$($_.Name)" -Class $Class -CimSession $CimSession -Verbose:$false
+        Get-WmiInstance -Namespace "$Namespace\$($_.Name)" -Class $Class -CimSession $CimSession -Verbose:$false
     }
 }

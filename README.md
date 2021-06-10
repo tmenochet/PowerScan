@@ -39,6 +39,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimAsepWmi            | Get WMI persistences                                      |
 | Get-CimDNSCache           | Get DNS cache entries                                     |
 | Get-CimDriver             | Get Windows drivers                                       |
+| Get-CimLocalAdmin         | Get members of local admin group on a remote computer     |
 | Get-CimLocalUser          | Get local user accounts                                   |
 | Get-CimNetTCPConnection   | Get current TCP connections                               |
 | Get-CimProcess            | Get running processes                                     |

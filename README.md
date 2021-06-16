@@ -19,7 +19,7 @@ Reconnaissance functions require either low privileges (typically domain user) o
 
 | Function              | Description                                |
 | --------------------- | ------------------------------------------ |
-| Get-NetSession        | Get session information                    |
+| Get-NetSession        | Get logon session information              |
 | Get-NullSessionStatus | Check if null session to IPC$ is allowed   |
 | Get-OxidBindings      | Get addresses of network interfaces        |
 | Get-SecurityService   | Detect security services                   |
@@ -41,6 +41,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimDriver             | Get Windows drivers                                       |
 | Get-CimLocalAdmin         | Get members of local admin group                          |
 | Get-CimLocalUser          | Get local user accounts                                   |
+| Get-CimLogonSession       | Get logon session information                             |
 | Get-CimNetTCPConnection   | Get current TCP connections                               |
 | Get-CimProcess            | Get running processes                                     |
 | Get-CimScheduledTask      | Get scheduled tasks                                       |

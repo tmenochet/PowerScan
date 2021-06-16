@@ -1,4 +1,4 @@
-function Get-OxidBindings {
+function Get-OxidBinding {
 <#
 .SYNOPSIS
     Get network addresses of remote computer.
@@ -7,14 +7,14 @@ function Get-OxidBindings {
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-OxidBindings queries a remote host about oxid bindings.
+    Get-OxidBinding queries a remote host about oxid bindings.
     It is a slightly modified version of PingCastle's OxidBindingsScanner by @mysmartlogon.
 
 .PARAMETER ComputerName
-    Specifies the target host.
+    Specifies the host to query.
 
 .EXAMPLE
-    PS C:\> Get-OxidBindings -ComputerName DC.ADATUM.CORP
+    PS C:\> Get-OxidBinding -ComputerName DC.ADATUM.CORP
 #>
 
     Param (
@@ -44,7 +44,7 @@ function Get-OxidBindings {
     }
 }
 
-$source = @"
+Add-Type @"
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -485,4 +485,4 @@ namespace PingCastle
     }
 }
 "@
-Add-Type -TypeDefinition $source
+

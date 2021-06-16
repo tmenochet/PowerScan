@@ -39,7 +39,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimAsepWmi            | Get WMI persistences                                      |
 | Get-CimDNSCache           | Get DNS cache entries                                     |
 | Get-CimDriver             | Get Windows drivers                                       |
-| Get-CimLocalAdmin         | Get members of local admin group on a remote computer     |
+| Get-CimLocalAdmin         | Get members of local admin group                          |
 | Get-CimLocalUser          | Get local user accounts                                   |
 | Get-CimNetTCPConnection   | Get current TCP connections                               |
 | Get-CimProcess            | Get running processes                                     |
@@ -50,6 +50,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CredentialFile        | Get credentials from common files                         |
 | Get-CredentialRegistry    | Get credentials from common registry keys                 |
 | Get-EventLogon            | Get logon events from Windows Security logs               |
+| Get-EventSuspiciousBITS   | Get suspicious BITS events from Windows logs              |
 | Get-EventSuspiciousPS     | Get suspicious Powershell events from Windows logs        |
 | Get-EventSvcCreation      | Get service creation events from System logs              |
 | Get-EventSvcModification  | Get service modification events from System logs          |

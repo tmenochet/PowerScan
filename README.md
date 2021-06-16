@@ -41,6 +41,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimDriver             | Get Windows drivers                                       |
 | Get-CimLocalAdmin         | Get members of local admin group                          |
 | Get-CimLocalUser          | Get local user accounts                                   |
+| Get-CimLogonHistory       | Get logon cached information                              |
 | Get-CimLogonSession       | Get logon session information                             |
 | Get-CimNetAdapter         | Get network adapters                                      |
 | Get-CimNetTCPConnection   | Get current TCP connections                               |

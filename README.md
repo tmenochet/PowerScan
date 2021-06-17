@@ -47,6 +47,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimNetTCPConnection   | Get current TCP connections                               |
 | Get-CimProcess            | Get running processes                                     |
 | Get-CimRegistryKey        | Get registry subkeys                                      |
+| Get-CimRegistryValue      | Get registry value names                                  |
 | Get-CimScheduledTask      | Get scheduled tasks                                       |
 | Get-CimSecurityHealth     | Get the status of security softwares                      |
 | Get-CimService            | Get Windows services                                      |

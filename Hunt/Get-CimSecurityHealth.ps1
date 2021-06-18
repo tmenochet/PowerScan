@@ -14,14 +14,17 @@ function Get-CimSecurityHealth {
 .PARAMETER ComputerName
     Specifies the target host.
 
-.PARAMETER Credential
-    Specifies the privileged account to use.
-
 .PARAMETER Ping
     Ensures host is up before run.
 
+.PARAMETER Credential
+    Specifies the privileged account to use.
+
+.PARAMETER Authentication
+    Specifies what authentication method should be used.
+
 .PARAMETER Protocol
-    Specifies the protocol to use.
+    Specifies the protocol to use, defaults to DCOM.
 
 .EXAMPLE
     PS C:\> Get-CimSecurityHealth -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator
@@ -33,13 +36,17 @@ function Get-CimSecurityHealth {
         [String]
         $ComputerName = $env:COMPUTERNAME,
 
+        [Switch]
+        $Ping,
+
         [ValidateNotNullOrEmpty()]
         [Management.Automation.PSCredential]
         [Management.Automation.CredentialAttribute()]
         $Credential = [Management.Automation.PSCredential]::Empty,
 
-        [Switch]
-        $Ping,
+        [ValidateSet('Default', 'Kerberos', 'Negotiate', 'NtlmDomain')]
+        [String]
+        $Authentication = 'Default',
 
         [ValidateSet('Dcom', 'Wsman')]
         [String]
@@ -54,16 +61,33 @@ function Get-CimSecurityHealth {
 
         $cimOption = New-CimSessionOption -Protocol $Protocol
         try {
-            if ($Credential.Username) {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            if (-not $PSBoundParameters['ComputerName']) {
+                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            elseif ($Credential.Username) {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
             }
             else {
-                $cimSession = New-CimSession -ComputerName $ComputerName -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
             }
         }
-        catch [Microsoft.Management.Infrastructure.CimException] {
-            Write-Verbose "[$ComputerName] Failed to establish CIM session."
+        catch [System.Management.Automation.PSArgumentOutOfRangeException] {
+            Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
             break
+        }
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
+                break
+            }
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Verbose "[$ComputerName] Access denied."
+                break
+            }
+            else {
+                Write-Verbose "[$ComputerName] Failed to establish CIM session."
+                break
+            }
         }
 
         [uint32]$HKLM = 2147483650

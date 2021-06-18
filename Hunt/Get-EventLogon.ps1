@@ -15,6 +15,9 @@ Function Get-EventLogon {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
+.PARAMETER Authentication
+    Specifies what authentication method should be used.
+
 .PARAMETER Limit
     Specifies the maximal number of events to retrieve, defaults to 10
 
@@ -38,6 +41,10 @@ Function Get-EventLogon {
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
         $Credential = [System.Management.Automation.PSCredential]::Empty,
+
+        [ValidateSet('Default', 'Kerberos', 'Negotiate', 'NTLM')]
+        [String]
+        $Authentication = 'Negotiate',
 
         [ValidateNotNullOrEmpty()]
         [Int32]
@@ -71,7 +78,7 @@ Function Get-EventLogon {
     if ($Credential.UserName) {
         $username = $Credential.UserName
         $password = $Credential.GetNetworkCredential().Password
-        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /format:XML /count:$Limit /rd | ForEach-Object {
+        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /authentication:$Authentication /format:XML /count:$Limit /rd | ForEach-Object {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {
@@ -80,7 +87,7 @@ Function Get-EventLogon {
         }
     }
     else {
-        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /format:XML /count:$Limit /rd | ForEach-Object {
+        WevtUtil query-events Security /query:$filterXPath /remote:$ComputerName /authentication:$Authentication /format:XML /count:$Limit /rd | ForEach-Object {
             [XML] $XML = ($_)
             $status = $XML.Event.System.Keywords
             if ($status -eq "0x8020000000000000") {

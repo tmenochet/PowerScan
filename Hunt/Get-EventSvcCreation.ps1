@@ -15,6 +15,9 @@ Function Get-EventSvcCreation {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
+.PARAMETER Authentication
+    Specifies what authentication method should be used.
+
 .PARAMETER Limit
     Specifies the maximal number of events to retrieve, defaults to 10
 
@@ -38,6 +41,10 @@ Function Get-EventSvcCreation {
         [Management.Automation.PSCredential]
         [Management.Automation.Credential()]
         $Credential = [Management.Automation.PSCredential]::Empty,
+
+        [ValidateSet('Default', 'Kerberos', 'Negotiate', 'NTLM')]
+        [String]
+        $Authentication = 'Negotiate',
 
         [ValidateNotNullOrEmpty()]
         [Int32]
@@ -65,12 +72,12 @@ Function Get-EventSvcCreation {
     if ($Credential.UserName) {
         $username = $Credential.UserName
         $password = $Credential.GetNetworkCredential().Password
-        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /format:XML /count:$Limit /rd /uni | ForEach-Object {
+        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /username:$username /password:$password /authentication:$Authentication /format:XML /count:$Limit /rd /uni | ForEach-Object {
             Write-Output (ParseEventSvcCreation([xml]($_)))
         }
     }
     else {
-        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /format:XML /count:$Limit /rd /uni | ForEach-Object {
+        WevtUtil query-events System /query:$filterXPath /remote:$ComputerName /authentication:$Authentication /format:XML /count:$Limit /rd /uni | ForEach-Object {
             Write-Output (ParseEventSvcCreation([xml]($_)))
         }
     }

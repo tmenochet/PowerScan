@@ -52,6 +52,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimSecurityHealth     | Get the status of security softwares                      |
 | Get-CimService            | Get Windows services                                      |
 | Get-CimSmbShare           | Get SMB shares and related permissions                    |
+| Get-CimUserAssist         | Get user assist execution artefacts                       |
 | Get-ComScheduledTask      | Get scheduled tasks                                       |
 | Get-CredentialFile        | Get credentials from common files                         |
 | Get-CredentialRegistry    | Get credentials from common registry keys                 |

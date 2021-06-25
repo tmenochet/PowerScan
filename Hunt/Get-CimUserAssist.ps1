@@ -90,12 +90,11 @@ function Get-CimUserAssist {
                 break
             }
         }
-
-        [uint32]$HKU = 2147483651
-        $SIDS = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
     }
 
     PROCESS {
+        [uint32]$HKU = 2147483651
+        $SIDS = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
         $key = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\UserAssist'
         foreach ($SID in $SIDs) {
             $locations = Get-RegistryKey -CimSession $cimSession -Hive $HKU -SubKey "$SID\$key" -Recurse | Where-Object { $_ -like "*Count" }
@@ -159,72 +158,4 @@ function Local:Get-RegistryKey {
             Get-RegistryKey -CimSession $CimSession -Hive $Hive -SubKey $key -Recurse
         }
     }
-}
-
-function Local:Get-RegistryTypeMethod($Code) {
-    $type = switch ($Code) {
-        0  {'REG_NONE'}
-        1  {'REG_SZ'}
-        2  {'REG_EXPAND_SZ'}
-        3  {'REG_BINARY'}
-        4  {'REG_DWORD'}
-        7  {'REG_MULTI_SZ'}
-        8  {'REG_RESOURCE_LIST'} # Just treat this as binary
-        9  {'REG_FULL_RESOURCE_DESCRIPTOR'} # Just treat this as binary
-        10 {'REG_RESOURCE_REQUIREMENTS_LIST'} # Just treat this as binary
-        11 {'REG_QWORD'}
-    }
-
-    switch ($type) {
-        'REG_NONE' {
-            $methodName = 'GetBinaryValue'
-            $returnProp = 'uValue'
-        }
-
-        'REG_SZ' {
-            $methodName = 'GetStringValue'
-            $returnProp = 'sValue'
-        }
-
-        'REG_EXPAND_SZ' {
-            $methodName = 'GetExpandedStringValue'
-            $returnProp = 'sValue'
-        }
-
-        'REG_MULTI_SZ' {
-            $methodName = 'GetMultiStringValue'
-            $returnProp = 'sValue'
-        }
-
-        'REG_DWORD' {
-            $methodName = 'GetDWORDValue'
-            $returnProp = 'uValue'
-        }
-
-        'REG_QWORD' {
-            $methodName = 'GetQWORDValue'
-            $returnProp = 'uValue'
-        }
-
-        'REG_BINARY' {
-            $methodName = 'GetBinaryValue'
-            $returnProp = 'uValue'
-        }
-
-        'REG_RESOURCE_LIST' {
-            $methodName = 'GetBinaryValue'
-            $returnProp = 'uValue'
-        }
-
-        'REG_FULL_RESOURCE_DESCRIPTOR' {
-            $methodName = 'GetBinaryValue'
-            $returnProp = 'uValue'
-        }
-
-        'REG_RESOURCE_REQUIREMENTS_LIST' {
-            $methodName = 'GetBinaryValue'
-            $returnProp = 'uValue'
-        }
-    }
-    return [pscustomobject] @{MethodName = $methodName; ReturnProp = $returnProp}
 }

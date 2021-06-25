@@ -34,6 +34,7 @@ Hunting functions require high privileges (typically administrator).
 
 | Function                  | Description                                               |
 | ------------------------- | --------------------------------------------------------- |
+| Get-CimAppCompatCache     | Get shimcache execution artefacts                         |
 | Get-CimAsepLogon          | Get AutoStart Extension Points related to logon           |
 | Get-CimAsepStartup        | Get common AutoStart Extension Points related to logon    |
 | Get-CimAsepWmi            | Get WMI persistences                                      |

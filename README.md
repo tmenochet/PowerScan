@@ -66,6 +66,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-EventTaskModification | Get scheduled task modification events from Security logs |
 | Get-PowershellHistory     | Get Powershell history files                              |
 | Get-PowershellProfile     | Get Powershell profile files                              |
+| Get-RegistryKeyTimestamp  | Get registry key timestamp                                |
 
 
 ## Examples

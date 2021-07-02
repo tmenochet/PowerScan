@@ -139,10 +139,20 @@ function Get-CimRegistryValue {
             foreach ($SID in $SIDs) {
                 $newSubKey = "$SID\$trimmedKey".Trim('\')
                 if ($ValueName) {
-                    Get-CimRegistryValue -Hive 'HKU' -SubKey $newSubKey -ValueName $ValueName
+                    if (-not $PSBoundParameters['ComputerName']) {
+                        Get-CimRegistryValue -Ping:$Ping -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive 'HKU' -SubKey $newSubKey -ValueName $ValueName
+                    }
+                    else {
+                        Get-CimRegistryValue -Ping:$Ping -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive 'HKU' -SubKey $newSubKey -ValueName $ValueName
+                    }
                 }
                 else {
-                    Get-CimRegistryValue -Hive 'HKU' -SubKey $newSubKey
+                    if (-not $PSBoundParameters['ComputerName']) {
+                        Get-CimRegistryValue -Ping:$Ping -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive 'HKU' -SubKey $newSubKey
+                    }
+                    else {
+                        Get-CimRegistryValue -Ping:$Ping -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive 'HKU' -SubKey $newSubKey
+                    }
                 }
             }
         }

@@ -55,7 +55,7 @@ function Get-CimRegistryKey {
         $Credential = [System.Management.Automation.PSCredential]::Empty,
 
         [ValidateSet('Default', 'Kerberos', 'Negotiate', 'NtlmDomain')]
-        [String]
+        [string]
         $Authentication = 'Default',
 
         [ValidateSet('Dcom', 'Wsman')]
@@ -63,11 +63,11 @@ function Get-CimRegistryKey {
         $Protocol = 'Dcom',
 
         [Parameter(Mandatory = $True)]
-        [String]
         [ValidateSet('HKLM', 'HKCU', 'HKU')]
+        [string]
         $Hive,
 
-        [String]
+        [string]
         $SubKey = '',
 
         [Switch]
@@ -124,8 +124,14 @@ function Get-CimRegistryKey {
         if ($Hive -eq 'HKCU') {
             $SIDS = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=([UInt32] 2147483651); sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
             foreach ($SID in $SIDs) {
+                write-warning $SID
                 $newSubKey = "$SID\$trimmedKey".Trim('\')
-                Get-CimRegistryKey -Hive 'HKU' -SubKey $newSubKey -Recurse:$Recurse
+                if (-not $PSBoundParameters['ComputerName']) {
+                    Get-CimRegistryKey -Ping:$Ping -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive 'HKU' -SubKey $newSubKey -Recurse:$Recurse
+                }
+                else {
+                    Get-CimRegistryKey -Ping:$Ping -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive 'HKU' -SubKey $newSubKey -Recurse:$Recurse
+                }
             }
         }
         else {
@@ -141,7 +147,12 @@ function Get-CimRegistryKey {
                     Write-Output $obj
 
                     if ($PSBoundParameters['Recurse']) {
-                        Get-CimRegistryKey -Hive $Hive -SubKey $newSubKey -Recurse
+                        if (-not $PSBoundParameters['ComputerName']) {
+                            Get-CimRegistryKey -Ping:$Ping -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive $Hive -SubKey $newSubKey -Recurse
+                        }
+                        else {
+                            Get-CimRegistryKey -Ping:$Ping -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -Protocol $Protocol -Hive $Hive -SubKey $newSubKey -Recurse
+                        }
                     }
                 }
             }

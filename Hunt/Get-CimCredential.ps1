@@ -129,7 +129,7 @@ Function Get-CimCredential {
             Get-VncCredentialRegistry -CimSession $cimSession -SID $SID
             Get-TeamViewerCredentialRegistry -CimSession $cimSession -SID $SID
             Get-WinScpCredentialRegistry -CimSession $cimSession -SID $SID
-            Get-PuttyCredentialRegistry -CimSession $cimSession -SID $SID
+            Get-PuttyCredentialRegistry -CimSession $cimSession -SID $SID -DownloadFiles:$DownloadFiles -Credential $Credential -PSSession $psSession
         }
 
         # Common files
@@ -547,7 +547,18 @@ Function Local:Get-PuttyCredentialRegistry {
 
         [Parameter(Mandatory = $True)]
         [String]
-        $SID
+        $SID,
+
+        [Switch]
+        $DownloadFiles,
+
+        [Management.Automation.Runspaces.PSSession]
+        $PSSession,
+
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
     )
 
     BEGIN {
@@ -585,8 +596,8 @@ Function Local:Get-PuttyCredentialRegistry {
                             $outputDir = "$PWD\$ComputerName"
                             $outputFile = "$outputDir\$($SID)_$(Split-Path -Path $keyFile -Leaf)"
                             New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-                            if ($psSession) {
-                                Get-RemoteFile -Path $keyFile -Destination $outputFile -ComputerName $ComputerName -PSSession $psSession
+                            if ($PSSession) {
+                                Get-RemoteFile -Path $keyFile -Destination $outputFile -ComputerName $ComputerName -PSSession $PSSession
                             }
                             else {
                                 Get-RemoteFile -Path $keyFile -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
@@ -608,7 +619,7 @@ Function Local:Get-UnattendCredentialFile {
         $CimSession,
 
         [Switch]
-        $DownloadFiles,
+        $Download,
 
         [Management.Automation.Runspaces.PSSession]
         $PSSession,
@@ -726,7 +737,7 @@ Function Local:Get-UnattendCredentialFile {
                 $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
                 $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
 
-                if ($DownloadFiles) {
+                if ($Download) {
                     $outputDir = "$PWD\$ComputerName"
                     $temp = $file.Name -split '\\'
                     $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))"
@@ -761,7 +772,7 @@ Function Local:Get-VncCredentialFile {
         $CimSession,
 
         [Switch]
-        $DownloadFiles,
+        $Download,
 
         [Management.Automation.Runspaces.PSSession]
         $PSSession,
@@ -828,7 +839,7 @@ Function Local:Get-VncCredentialFile {
                 $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
                 $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
 
-                if ($DownloadFiles) {
+                if ($Download) {
                     $outputDir = "$PWD\$ComputerName"
                     $temp = $file.Name -split '\\'
                     $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))"
@@ -883,7 +894,7 @@ Function Local:Get-FilezillaCredentialFile {
         $CimSession,
 
         [Switch]
-        $DownloadFiles,
+        $Download,
 
         [Management.Automation.Runspaces.PSSession]
         $PSSession,
@@ -916,7 +927,7 @@ Function Local:Get-FilezillaCredentialFile {
                 $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
                 $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
 
-                if ($DownloadFiles) {
+                if ($Download) {
                     $outputDir = "$PWD\$ComputerName"
                     $temp = $ProfilePath -split "\\"
                     $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
@@ -981,7 +992,7 @@ Function Local:Get-MRNGCredentialFile {
         $CimSession,
 
         [Switch]
-        $DownloadFiles,
+        $Download,
 
         [Management.Automation.Runspaces.PSSession]
         $PSSession,
@@ -1093,7 +1104,7 @@ Function Local:Get-MRNGCredentialFile {
             $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
             $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
 
-            if ($DownloadFiles) {
+            if ($Download) {
                 $outputDir = "$PWD\$ComputerName"
                 $temp = $ProfilePath -split "\\"
                 $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"

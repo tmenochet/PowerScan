@@ -38,6 +38,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimAsepLogon          | Get AutoStart Extension Points related to logon           |
 | Get-CimAsepStartup        | Get common AutoStart Extension Points related to logon    |
 | Get-CimAsepWmi            | Get WMI persistences                                      |
+| Get-CimCredential         | Get credentials from common registry keys and files       |
 | Get-CimDNSCache           | Get DNS cache entries                                     |
 | Get-CimDriver             | Get Windows drivers                                       |
 | Get-CimLocalAdmin         | Get members of local admin group                          |
@@ -55,8 +56,6 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimSmbShare           | Get SMB shares and related permissions                    |
 | Get-CimUserAssist         | Get user assist execution artefacts                       |
 | Get-ComScheduledTask      | Get scheduled tasks                                       |
-| Get-CredentialFile        | Get credentials from common files                         |
-| Get-CredentialRegistry    | Get credentials from common registry keys                 |
 | Get-EventLogon            | Get logon events from Windows Security logs               |
 | Get-EventSuspiciousBITS   | Get suspicious BITS events from Windows logs              |
 | Get-EventSuspiciousPS     | Get suspicious Powershell events from Windows logs        |
@@ -93,9 +92,9 @@ Gather credentials from common files on all domain computers (using explicit cre
 
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
-PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Hunt/Get-CredentialFile.ps1')
+PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Hunt/Get-CimCredential.ps1')
 PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CredentialFile} -ScriptParameters @{Credential=$cred; Download=$true} -ComputerDomain ADATUM.CORP -Credential $cred
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CimCredential} -ScriptParameters @{Credential=$cred; DownloadFiles=$true} -ComputerDomain ADATUM.CORP -Credential $cred
 ```
 
 

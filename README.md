@@ -23,6 +23,7 @@ Reconnaissance functions require either low privileges (typically domain user) o
 | Get-NullSessionStatus | Check if null session to IPC$ is allowed   |
 | Get-OxidBinding       | Get addresses of network interfaces        |
 | Get-SecurityService   | Detect security services                   |
+| Get-ServiceNamedPipe  | Detect interesting services                |
 | Get-SmbStatus         | Get available versions of the SMB protocol |
 | Get-SpoolerStatus     | Get the status of Print Spooler service    |
 

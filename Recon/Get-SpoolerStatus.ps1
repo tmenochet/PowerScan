@@ -120,6 +120,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Permissions;
 using System.Text;
+using System.Net;
+
 namespace PingCastle
 {
     public class rprn
@@ -811,6 +813,9 @@ namespace PingCastle
             DEVMODE_CONTAINER devmodeContainer = new DEVMODE_CONTAINER();
             try
             {
+                if(Uri.CheckHostName(computer).ToString() == "Dns" ){
+                    computer = Dns.GetHostAddresses(computer)[0].ToString();
+                }
                 Int32 ret = RpcOpenPrinter("\\\\" + computer, out hHandle, null, ref devmodeContainer, 0);
                 if (ret == 0)
                 {

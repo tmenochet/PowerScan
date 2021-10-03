@@ -34,41 +34,42 @@ Reconnaissance functions require either low privileges (typically domain user) o
 Hunting functions require high privileges (typically administrator).
 
 
-| Function                  | Description                                               |
-| ------------------------- | --------------------------------------------------------- |
-| Get-CimAppCompatCache     | Get shimcache execution artefacts                         |
-| Get-CimAsepLogon          | Get AutoStart Extension Points related to logon           |
-| Get-CimAsepStartup        | Get common AutoStart Extension Points related to logon    |
-| Get-CimAsepWmi            | Get WMI persistences                                      |
-| Get-CimCredential         | Get credentials from common registry keys and files       |
-| Get-CimDNSCache           | Get DNS cache entries                                     |
-| Get-CimDriver             | Get Windows drivers                                       |
-| Get-CimLocalAdmin         | Get members of local admin group                          |
-| Get-CimLocalUser          | Get local user accounts                                   |
-| Get-CimLogonHistory       | Get logon cached information                              |
-| Get-CimLogonSession       | Get logon session information                             |
-| Get-CimNetAdapter         | Get network adapters                                      |
-| Get-CimNetTCPConnection   | Get current TCP connections                               |
-| Get-CimProcess            | Get running processes                                     |
-| Get-CimRegistryKey        | Get registry subkeys                                      |
-| Get-CimRegistryValue      | Get registry value names                                  |
-| Get-CimScheduledTask      | Get scheduled tasks                                       |
-| Get-CimSecurityHealth     | Get the status of security softwares                      |
-| Get-CimService            | Get Windows services                                      |
-| Get-CimSmbShare           | Get SMB shares and related permissions                    |
-| Get-CimUserAssist         | Get user assist execution artefacts                       |
-| Get-ComScheduledTask      | Get scheduled tasks                                       |
-| Get-EventLogon            | Get logon events from Windows Security logs               |
-| Get-EventSuspiciousBITS   | Get suspicious BITS events from Windows logs              |
-| Get-EventSuspiciousPS     | Get suspicious Powershell events from Windows logs        |
-| Get-EventSvcCreation      | Get service creation events from System logs              |
-| Get-EventSvcModification  | Get service modification events from System logs          |
-| Get-EventTaskCreation     | Get scheduled task creation events from Security logs     |
-| Get-EventTaskModification | Get scheduled task modification events from Security logs |
-| Get-PowershellHistory     | Get Powershell history files                              |
-| Get-PowershellProfile     | Get Powershell profile files                              |
-| Get-RegistryKeyTimestamp  | Get registry key timestamp                                |
-| Get-ShadowHiveDump        | Get secrets from registry hives retrieved via shadow copy |
+| Function                  | Description                                                   |
+| ------------------------- | ------------------------------------------------------------- |
+| Get-CimAppCompatCache     | Get shimcache execution artefacts                             |
+| Get-CimAsepLogon          | Get AutoStart Extension Points related to logon               |
+| Get-CimAsepStartup        | Get common AutoStart Extension Points related to logon        |
+| Get-CimAsepWmi            | Get WMI persistences                                          |
+| Get-CimCredential         | Get credentials from common registry keys and files           |
+| Get-CimDNSCache           | Get DNS cache entries                                         |
+| Get-CimDriver             | Get Windows drivers                                           |
+| Get-CimLocalAdmin         | Get members of local admin group                              |
+| Get-CimLocalUser          | Get local user accounts                                       |
+| Get-CimLogonHistory       | Get logon cached information                                  |
+| Get-CimLogonSession       | Get logon session information                                 |
+| Get-CimNetAdapter         | Get network adapters                                          |
+| Get-CimNetTCPConnection   | Get current TCP connections                                   |
+| Get-CimProcess            | Get running processes                                         |
+| Get-CimRegistryKey        | Get registry subkeys                                          |
+| Get-CimRegistryValue      | Get registry value names                                      |
+| Get-CimScheduledTask      | Get scheduled tasks                                           |
+| Get-CimSecurityHealth     | Get the status of security softwares                          |
+| Get-CimService            | Get Windows services                                          |
+| Get-CimSmbShare           | Get SMB shares and related permissions                        |
+| Get-CimUserAssist         | Get user assist execution artefacts                           |
+| Get-ComScheduledTask      | Get scheduled tasks                                           |
+| Get-EventLogon            | Get logon events from Windows Security logs                   |
+| Get-EventSuspiciousBITS   | Get suspicious BITS events from Windows logs                  |
+| Get-EventSuspiciousPS     | Get suspicious Powershell events from Windows logs            |
+| Get-EventSvcCreation      | Get service creation events from System logs                  |
+| Get-EventSvcModification  | Get service modification events from System logs              |
+| Get-EventTaskCreation     | Get scheduled task creation events from Security logs         |
+| Get-EventTaskModification | Get scheduled task modification events from Security logs     |
+| Get-PowershellHistory     | Get Powershell history files                                  |
+| Get-PowershellProfile     | Get Powershell profile files                                  |
+| Get-RegistryHiveDump      | Get secrets from registry hives retrieved via remote registry |
+| Get-RegistryKeyTimestamp  | Get registry key timestamp                                    |
+| Get-ShadowHiveDump        | Get secrets from registry hives retrieved via shadow copy     |
 
 
 ## Examples

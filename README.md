@@ -43,7 +43,6 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimCredential         | Get credentials from common registry keys and files       |
 | Get-CimDNSCache           | Get DNS cache entries                                     |
 | Get-CimDriver             | Get Windows drivers                                       |
-| Get-CimHiveDump           | Get secrets from registry hives retrieved via shadow copy |
 | Get-CimLocalAdmin         | Get members of local admin group                          |
 | Get-CimLocalUser          | Get local user accounts                                   |
 | Get-CimLogonHistory       | Get logon cached information                              |
@@ -69,6 +68,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-PowershellHistory     | Get Powershell history files                              |
 | Get-PowershellProfile     | Get Powershell profile files                              |
 | Get-RegistryKeyTimestamp  | Get registry key timestamp                                |
+| Get-ShadowHiveDump        | Get secrets from registry hives retrieved via shadow copy |
 
 
 ## Examples

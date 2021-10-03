@@ -1,6 +1,6 @@
 #requires -version 3
 
-Function Get-CimHiveDump {
+Function Get-ShadowHiveDump {
 <#
 .SYNOPSIS
     Get secrets from registry hives located on a remote computer.
@@ -9,7 +9,7 @@ Function Get-CimHiveDump {
     Author: Timothee MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-CimHiveDump gets a copy of the SAM, SYSTEM and SECURITY hives via VSS from a remote computer, then extracts secrets from local copy.
+    Get-ShadowHiveDump gets a copy of the SAM, SYSTEM and SECURITY hives via VSS from a remote computer, then extracts secrets from local copy.
     The hive parser's code is mostly stolen from CVE-2021-36934 exploit by @cube0x0.
 
 .PARAMETER ComputerName
@@ -28,10 +28,10 @@ Function Get-CimHiveDump {
     Enables shadow copy creation in order to get an up-to-date dump.
 
 .EXAMPLE
-    PS C:\> Get-CimHiveDump -ComputerName SRV.ADATUM.CORP -Force
+    PS C:\> Get-ShadowHiveDump -ComputerName SRV.ADATUM.CORP -Force
 
 .EXAMPLE
-    PS C:\> Get-CimHiveDump -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -Protocol Wsman
+    PS C:\> Get-ShadowHiveDump -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -Protocol Wsman
 #>
 
     [CmdletBinding()]

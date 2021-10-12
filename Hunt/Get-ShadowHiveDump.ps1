@@ -710,7 +710,7 @@ public class Registry
         if (keyName.ToUpper().StartsWith("_SC_"))
         {
             ValueKey startName = GetValueKey(system, string.Format(@"ControlSet001\Services\{0}\ObjectName", keyName.Substring(4)));
-            string pw = Encoding.Unicode.GetString(secretBlob.secret.ToArray());
+            string pw = Encoding.Unicode.GetString(secretBlob.secret);
             secretOutput += string.Format("{0}:{1}", Encoding.UTF8.GetString(startName.Data), pw);
         }
         else if (keyName.ToUpper().StartsWith("$MACHINE.ACC"))

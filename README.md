@@ -19,6 +19,7 @@ Reconnaissance functions require either low privileges (typically domain user) o
 
 | Function              | Description                                |
 | --------------------- | ------------------------------------------ |
+| Get-NBNSInfo          | Get NetBIOS information                    |
 | Get-NetSession        | Get logon session information              |
 | Get-NullSessionStatus | Check if null session to IPC$ is allowed   |
 | Get-OxidBinding       | Get addresses of network interfaces        |

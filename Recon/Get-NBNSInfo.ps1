@@ -8,6 +8,7 @@ Function Get-NBNSInfo {
 
 .DESCRIPTION
     Get-NBNSInfo queries remote host via NetBIOS protocol.
+    It can be used to identify a multi-homed Windows computer on the local network.
 
 .PARAMETER ComputerName
     Specifies the host to query.
@@ -31,21 +32,38 @@ Function Get-NBNSInfo {
         $remoteendpoint = New-Object System.Net.IpEndpoint([Net.IpAddress]::Any, 0)
         $response = $client.Receive([ref]$remoteendpoint)
         $client.Close()
+
         if ($response -ge 90) {
-            $deviceName = ([Text.Encoding]::ASCII.GetString($response[57..72]) -Replace '\0', ' ').Trim()
-            $networkName = ([Text.Encoding]::ASCII.GetString($response[75..90]) -Replace '\0', ' ').Trim()
-            $offfset = 56 + $response[56] * 18 + 1
-            $macAddress = ""
-            for ($i = 0; $i -lt 6; $i++) {
-                $macAddress += [BitConverter]::ToString($response[$offfset + $i]) + ":"
+
+            $netbiosDomain = ([Text.Encoding]::ASCII.GetString($response[57..72]) -Replace '\0', ' ').Trim()
+            $netbiosName = ([Text.Encoding]::ASCII.GetString($response[75..90]) -Replace '\0', ' ').Trim()
+            if ($netbiosName -eq $netbiosDomain) {
+                $netbiosDomain = ([Text.Encoding]::ASCII.GetString($response[92..107]) -Replace '\0', ' ').Trim()
             }
-            $macAddress = $macAddress -replace ":$"
+
+            try {
+                $ipAddresses = (Resolve-DnsName -Name $netbiosName -Server $ComputerName -LlmnrNetbiosOnly -ErrorAction Stop).IPAddress
+            }
+            catch {
+                $ipAddresses = (Resolve-DnsName -Name $netbiosDomain -Server $ComputerName -LlmnrNetbiosOnly).IPAddress
+                $temp = $netbiosName
+                $netbiosName = $netbiosDomain
+                $netbiosDomain = $temp
+            }
+
+            $offset = 56 + $response[56] * 18 + 1
+            $hwAddress = ""
+            for ($i = 0; $i -lt 6; $i++) {
+                $hwAddress += [BitConverter]::ToString($response[$offset + $i]) + ":"
+            }
+            $hwAddress = $hwAddress -replace ":$"
     
             $obj = New-Object -TypeName psobject
             $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-            $obj | Add-Member -MemberType NoteProperty -Name 'DeviceName' -Value $deviceName
-            $obj | Add-Member -MemberType NoteProperty -Name 'NetworkName' -Value $networkName
-            $obj | Add-Member -MemberType NoteProperty -Name 'PhysicalAddress' -Value $macAddress
+            $obj | Add-Member -MemberType NoteProperty -Name 'NetbiosName' -Value $netbiosName
+            $obj | Add-Member -MemberType NoteProperty -Name 'NetbiosDomain' -Value $netbiosDomain
+            $obj | Add-Member -MemberType NoteProperty -Name 'IpAddresses' -Value $ipAddresses
+            $obj | Add-Member -MemberType NoteProperty -Name 'HardwareAddress' -Value $hwAddress
             Write-Output $obj
         }
     }

@@ -17,17 +17,17 @@ Console output can also be disabled using the switch `-Quiet`.
 
 Reconnaissance functions require either low privileges (typically domain user) or none.
 
-| Function              | Description                                |
-| --------------------- | ------------------------------------------ |
-| Get-NBNSInfo          | Get NetBIOS information                    |
-| Get-NetSession        | Get logon session information              |
-| Get-NullSessionStatus | Check if null session to IPC$ is allowed   |
-| Get-OxidBinding       | Get addresses of network interfaces        |
-| Get-SecurityService   | Detect security services                   |
-| Get-ServiceNamedPipe  | Detect interesting services                |
-| Get-SmbOSVersion      | Get OS version                             |
-| Get-SmbStatus         | Get available versions of the SMB protocol |
-| Get-SpoolerStatus     | Get the status of Print Spooler service    |
+| Function              | Description                                          |
+| --------------------- | ---------------------------------------------------- |
+| Get-NetBiosInterface  | Get NetBIOS information, including network addresses |
+| Get-NetSession        | Get logon session information                        |
+| Get-NullSessionStatus | Check if null session to IPC$ is allowed             |
+| Get-OxidBinding       | Get addresses of network interfaces                  |
+| Get-SecurityService   | Detect security services                             |
+| Get-ServiceNamedPipe  | Detect interesting services                          |
+| Get-SmbOSVersion      | Get OS version                                       |
+| Get-SmbStatus         | Get available versions of the SMB protocol           |
+| Get-SpoolerStatus     | Get the status of Print Spooler service              |
 
 
 ### Hunt

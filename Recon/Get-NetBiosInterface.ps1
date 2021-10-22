@@ -1,20 +1,20 @@
-Function Get-NBNSInfo {
+Function Get-NetBiosInterface {
 <#
 .SYNOPSIS
-    Get NetBIOS information from a remote computer.
+    Get NetBIOS information from a remote computer, including network interface addresses.
     Privileges required: none
 
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-NBNSInfo queries remote host via NetBIOS protocol.
+    Get-NetBiosInterface queries remote host via NetBIOS protocol.
     It can be used to identify a multi-homed Windows computer on the local network.
 
 .PARAMETER ComputerName
     Specifies the host to query.
 
 .EXAMPLE
-    PS C:\> Get-NBNSInfo -ComputerName 192.168.38.103
+    PS C:\> Get-NetBiosInterface -ComputerName 192.168.38.103
 #>
 
     Param (

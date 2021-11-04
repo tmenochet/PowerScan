@@ -35,7 +35,7 @@ function Get-CimDetectFolder {
 .PARAMETER StartMode
     Specifies one or more drivers by start mode.
 
-.PARAMETER Folder
+.PARAMETER Path
     Specifies searched file or folder.
 
 .PARAMETER InvertLogic
@@ -81,7 +81,7 @@ function Get-CimDetectFolder {
 
         [ValidateNotNullOrEmpty()]
         [string]
-        $Folder,
+        $Path,
 
         [switch]
         $InvertLogic
@@ -124,14 +124,14 @@ function Get-CimDetectFolder {
             }
         }
 
-        $wmifolder = ($Folder.TrimEnd('\') ).Replace('\','\\')
+        $wmiPath = ($Path.TrimEnd('\') ).Replace('\','\\')
     }
 
     PROCESS {
         
       
 
-        Get-CimInstance Win32_Directory -Filter "Name='$wmifolder'" -CimSession $cimSession -Verbose:$false | ForEach-Object {
+        Get-CimInstance Win32_Directory -Filter "Name='$wmiPath'" -CimSession $cimSession -Verbose:$false | ForEach-Object {
             $obj = New-Object -TypeName psobject
             $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
             $obj | Add-Member -MemberType NoteProperty -Name 'Name' -Value $_.FileName
@@ -140,7 +140,19 @@ function Get-CimDetectFolder {
             $obj | Add-Member -MemberType NoteProperty -Name 'LastAccessed' -Value $_.LastAccessed
             $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $_.LastModified
             $obj | Add-Member -MemberType NoteProperty -Name 'Hidden' -Value $_.Hidden
-            $obj | Add-Member -MemberType NoteProperty -Name 'AccessMask' -Value $_.AccessMask
+            $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value "Folder"
+            Write-Output $obj
+        }
+        Get-CimInstance CIM_DataFile  -Filter "Name='$wmiPath'" -CimSession $cimSession -Verbose:$false | ForEach-Object {
+            $obj = New-Object -TypeName psobject
+            $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
+            $obj | Add-Member -MemberType NoteProperty -Name 'Name' -Value $_.FileName
+            $obj | Add-Member -MemberType NoteProperty -Name 'FullPath' -Value $_.EightDotThreeFileName
+            $obj | Add-Member -MemberType NoteProperty -Name 'Creation' -Value $_.CreationDate
+            $obj | Add-Member -MemberType NoteProperty -Name 'LastAccessed' -Value $_.LastAccessed
+            $obj | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $_.LastModified
+            $obj | Add-Member -MemberType NoteProperty -Name 'Hidden' -Value $_.Hidden
+            $obj | Add-Member -MemberType NoteProperty -Name 'Type' -Value "File"
             Write-Output $obj
         }
     }

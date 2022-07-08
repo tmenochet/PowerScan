@@ -80,7 +80,7 @@ Get available versions of the SMB protocol and signing requirements on a network
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Recon/Get-SmbStatus.ps1')
-PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-SmbStatus} -ComputerList 192.168.1.0/24 -Thread 5
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-SmbStatus} -ComputerList 192.168.1.0/24
 ```
 
 

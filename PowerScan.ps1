@@ -34,7 +34,7 @@ Function Invoke-PowerScan {
     Adds LAPS credentials to script block parameters (experimental).
 
 .PARAMETER Threads
-    Specifies the number of threads to use, defaults to 10.
+    Specifies the number of threads to use, defaults to 1.
 
 .PARAMETER Quiet
     Disables console output.
@@ -92,7 +92,7 @@ Function Invoke-PowerScan {
 
         [ValidateNotNullOrEmpty()]
         [Int]
-        $Threads = 10,
+        $Threads = 1,
 
         [Switch]
         $Quiet,
@@ -211,12 +211,27 @@ Function Invoke-PowerScan {
         $ScriptBlock = [scriptblock]::Create($finalBlock)
     }
 
-    New-ThreadedFunction -ScriptBlock $ScriptBlock -ScriptParameters $ScriptParameters -Collection $hostList -CollectionParameter $ComputerArgument -Threads $Threads | Where-Object {$_} | ForEach-Object {
-        if (-not $Quiet) {
-            Write-Output $_
+    if ($Threads -eq 1 -or $hostList.Count -eq 1) {
+        foreach ($computer in $hostList) {
+            $params = $ScriptParameters.Clone()
+            $params.Add($ComputerArgument, $computer)
+            $output = & $ScriptBlock @params *>&1
+            if (-not $Quiet) {
+                Write-Output $output
+            }
+            if (-not $NoCsv) {
+                Out-CsvFile -InputObject $output -Path $OutputFile -Append
+            }
         }
-        if (-not $NoCsv) {
-            Out-CsvFile -InputObject $_ -Path $OutputFile -Append
+    }
+    else {
+        New-ThreadedFunction -ScriptBlock $ScriptBlock -ScriptParameters $ScriptParameters -Collection $hostList -CollectionParameter $ComputerArgument -Threads $Threads | Where-Object {$_} | ForEach-Object {
+            if (-not $Quiet) {
+                Write-Output $_
+            }
+            if (-not $NoCsv) {
+                Out-CsvFile -InputObject $_ -Path $OutputFile -Append
+            }
         }
     }
 }

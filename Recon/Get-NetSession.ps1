@@ -51,7 +51,7 @@ Function Get-NetSession {
     $ResumeHandle = 0
 
     # get session information
-    $Result = [Netapi32]::NetSessionEnum($ComputerName, '', $Identity, $QueryLevel, [ref]$PtrInfo, -1, [ref]$EntriesRead, [ref]$TotalRead, [ref]$ResumeHandle)
+    $Result = [NetSession.Netapi32]::NetSessionEnum($ComputerName, '', $Identity, $QueryLevel, [ref]$PtrInfo, -1, [ref]$EntriesRead, [ref]$TotalRead, [ref]$ResumeHandle)
 
     # locate the offset of the initial intPtr
     $Offset = $PtrInfo.ToInt64()
@@ -60,7 +60,7 @@ Function Get-NetSession {
     if (($Result -eq 0) -and ($Offset -gt 0)) {
 
         # work out how much to increment the pointer by finding out the size of the structure
-        $SessionInfo10 = New-Object SESSION_INFO_10
+        $SessionInfo10 = New-Object NetSession.SESSION_INFO_10
         $SessionInfo10Size = [System.Runtime.InteropServices.Marshal]::SizeOf($SessionInfo10)
         $Increment = $SessionInfo10Size
 
@@ -82,7 +82,7 @@ Function Get-NetSession {
         }
 
         # free up the result buffer
-        $Null = [Netapi32]::NetApiBufferFree($PtrInfo)
+        $Null = [NetSession.Netapi32]::NetApiBufferFree($PtrInfo)
     }
     else {
         Write-Verbose "[Get-NetSession] Error: $(([ComponentModel.Win32Exception] $Result).Message)"
@@ -126,13 +126,13 @@ Function Local:Invoke-UserImpersonation {
         $UserName = $NetworkCredential.UserName
         Write-Verbose "[UserImpersonation] Executing LogonUser() with user: $($UserDomain)\$($UserName)"
 
-        if (-not [Advapi32]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
+        if (-not [NetSession.Advapi32]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
             $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
             throw "[UserImpersonation] LogonUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
         }
     }
 
-    if (-not [Advapi32]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
+    if (-not [NetSession.Advapi32]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
         throw "[UserImpersonation] ImpersonateLoggedOnUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
     }
     $LogonTokenHandle
@@ -148,9 +148,9 @@ Function Local:Invoke-RevertToSelf {
 
     if ($PSBoundParameters['TokenHandle']) {
         Write-Verbose "[RevertToSelf] Reverting token impersonation and closing LogonUser() token handle"
-        [Kernel32]::CloseHandle($TokenHandle) | Out-Null
+        [NetSession.Kernel32]::CloseHandle($TokenHandle) | Out-Null
     }
-    if (-not [Advapi32]::RevertToSelf()) {
+    if (-not [NetSession.Advapi32]::RevertToSelf()) {
         $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
         throw "[RevertToSelf] RevertToSelf() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
     }
@@ -160,46 +160,48 @@ Add-Type @"
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-[StructLayout(LayoutKind.Sequential)]
-public struct SESSION_INFO_10 {
-    [MarshalAs(UnmanagedType.LPWStr)]public string OriginatingHost;
-    [MarshalAs(UnmanagedType.LPWStr)]public string DomainUser;
-    public uint SessionTime;
-    public uint IdleTime;
-}
-public static class Netapi32 {
-    [DllImport("Netapi32.dll", SetLastError=true)]
-    public static extern int NetSessionEnum(
-        [In,MarshalAs(UnmanagedType.LPWStr)] string ServerName,
-        [In,MarshalAs(UnmanagedType.LPWStr)] string UncClientName,
-        [In,MarshalAs(UnmanagedType.LPWStr)] string UserName,
-        Int32 Level,
-        out IntPtr bufptr,
-        int prefmaxlen,
-        ref Int32 entriesread,
-        ref Int32 totalentries,
-        ref Int32 resume_handle
-    );
-    [DllImport("Netapi32.dll", SetLastError=true)]
-    public static extern int NetApiBufferFree(IntPtr Buffer);
-}
-public static class Advapi32 {
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool LogonUserA(
-        string lpszUserName, 
-        string lpszDomain,
-        string lpszPassword,
-        int dwLogonType, 
-        int dwLogonProvider,
-        ref IntPtr  phToken
-    );
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool RevertToSelf();
-}
-public static class Kernel32 {
-    [DllImport("kernel32.dll", SetLastError=true)]
-	public static extern bool CloseHandle(IntPtr hObject);
+namespace NetSession {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SESSION_INFO_10 {
+        [MarshalAs(UnmanagedType.LPWStr)]public string OriginatingHost;
+        [MarshalAs(UnmanagedType.LPWStr)]public string DomainUser;
+        public uint SessionTime;
+        public uint IdleTime;
+    }
+    public static class Netapi32 {
+        [DllImport("Netapi32.dll", SetLastError=true)]
+        public static extern int NetSessionEnum(
+            [In,MarshalAs(UnmanagedType.LPWStr)] string ServerName,
+            [In,MarshalAs(UnmanagedType.LPWStr)] string UncClientName,
+            [In,MarshalAs(UnmanagedType.LPWStr)] string UserName,
+            Int32 Level,
+            out IntPtr bufptr,
+            int prefmaxlen,
+            ref Int32 entriesread,
+            ref Int32 totalentries,
+            ref Int32 resume_handle
+        );
+        [DllImport("Netapi32.dll", SetLastError=true)]
+        public static extern int NetApiBufferFree(IntPtr Buffer);
+    }
+    public static class Advapi32 {
+        [DllImport("advapi32.dll", SetLastError=true)]
+        public static extern bool LogonUserA(
+            string lpszUserName, 
+            string lpszDomain,
+            string lpszPassword,
+            int dwLogonType, 
+            int dwLogonProvider,
+            ref IntPtr  phToken
+        );
+        [DllImport("advapi32.dll", SetLastError=true)]
+        public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
+        [DllImport("advapi32.dll", SetLastError=true)]
+        public static extern bool RevertToSelf();
+    }
+    public static class Kernel32 {
+        [DllImport("kernel32.dll", SetLastError=true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+    }
 }
 "@

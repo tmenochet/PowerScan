@@ -1,4 +1,4 @@
-function Get-SmbStatus {
+Function Get-SmbStatus {
 <#
 .SYNOPSIS
     Get the version of the protocol SMB available on remote computer.
@@ -119,7 +119,7 @@ function Local:Get-SmbVersionStatus {
 
     $process_ID = [Diagnostics.Process]::GetCurrentProcess() | Select-Object -expand id
     $process_ID = [BitConverter]::ToString([BitConverter]::GetBytes($process_ID))
-    $process_ID = $process_ID -replace "-00-00",""
+    $process_ID = $process_ID.Replace("-00-00","")
     [Byte[]] $process_ID_bytes = $process_ID.Split("-") | ForEach-Object {[Char][Convert]::ToInt16($_,16)}
 
     $SMB_relay_socket = New-Object Net.Sockets.TCPClient

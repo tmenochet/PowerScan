@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-CimService {
+Function Get-CimService {
 <#
 .SYNOPSIS
     Get Windows services on a remote computer.
@@ -89,43 +89,15 @@ function Get-CimService {
         $InvertLogic
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
-        try {
-            if (-not $PSBoundParameters['ComputerName']) {
-                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
-            }
-            elseif ($Credential.Username) {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
-            }
-            else {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
-            }
-        }
-        catch [System.Management.Automation.PSArgumentOutOfRangeException] {
-            Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
-        }
-        catch [Microsoft.Management.Infrastructure.CimException] {
-            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
-                Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
-            }
-            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
-                Write-Verbose "[$ComputerName] Access denied."
-                break
-            }
-            else {
-                Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
-            }
-        }
-
         $filters = New-Object System.Collections.ArrayList
         switch ($PSBoundParameters.Keys) {
             "ServiceName" {
@@ -161,7 +133,39 @@ function Get-CimService {
         }
     }
 
-    PROCESS {
+    Process {
+        # Init remote session
+        try {
+            if (-not $PSBoundParameters['ComputerName']) {
+                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            elseif ($Credential.Username) {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            else {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+        }
+        catch [System.Management.Automation.PSArgumentOutOfRangeException] {
+            Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
+            return
+        }
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
+                return
+            }
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Verbose "[$ComputerName] Access denied."
+                return
+            }
+            else {
+                Write-Verbose "[$ComputerName] Failed to establish CIM session."
+                return
+            }
+        }
+
+        # Process artefact collection
         Get-CimInstance Win32_Service -Filter $filter -CimSession $cimSession -Verbose:$false | ForEach-Object {
             $obj = New-Object -TypeName psobject
             $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
@@ -177,7 +181,10 @@ function Get-CimService {
         }
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
+    End {
+        # End session
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
     }
 }

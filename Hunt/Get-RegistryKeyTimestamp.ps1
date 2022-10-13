@@ -47,25 +47,25 @@
         $SubKey = ''
     )
 
-    BEGIN {
+    Begin {
         if ($Credential.UserName) {
             $logonToken = Invoke-UserImpersonation -Credential $Credential
         }
 
+        # Init variables
         $regQueryInfoKeyAddr = Get-ProcAddress Advapi32.dll RegQueryInfoKeyA
         $regQueryInfoKeyDelegate = Get-DelegateType @([Microsoft.Win32.SafeHandles.SafeRegistryHandle], [Text.StringBuilder], [UInt32].MakeByRefType(), [UInt32], [UInt32].MakeByRefType(), [UInt32].MakeByRefType(), [UInt32].MakeByRefType(), [UInt32].MakeByRefType(), [UInt32].MakeByRefType(), [UInt32].MakeByRefType(), [UInt32].MakeByRefType(), [long].MakeByRefType()) ([IntPtr])
         $regQueryInfoKey = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($regQueryInfoKeyAddr, $regQueryInfoKeyDelegate)
-    }
-
-    PROCESS {
         switch ($Hive) {
             'HKLM' { $registryHive = [Microsoft.Win32.RegistryHive]::LocalMachine }
             'HKCU' { $registryHive = [Microsoft.Win32.RegistryHive]::CurrentUser }
             'HKU'  { $registryHive = [Microsoft.Win32.RegistryHive]::Users }
         }
-
         $trimmedKey = $SubKey.Trim('\')
 
+    }
+
+    Process {
         if ($Hive -eq 'HKCU') {
             try  {
                 $registry = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey([Microsoft.Win32.RegistryHive]::Users, $ComputerName)
@@ -79,7 +79,7 @@
             catch [Management.Automation.MethodInvocationException] {
                 if($Error[0].FullyQualifiedErrorId -eq 'UnauthorizedAccessException') {
                     Write-Verbose "[$ComputerName] Access is denied."
-                    break
+                    return
                 }
             }
         }
@@ -130,14 +130,17 @@
             catch [Management.Automation.MethodInvocationException] {
                 if($Error[0].FullyQualifiedErrorId -eq 'UnauthorizedAccessException') {
                     Write-Verbose "[$ComputerName] Access is denied."
-                    break
+                    return
                 }
             }
         }
     }
 
-    END {
-        $registry.Close()
+    End {
+        # End session
+        if ($registry) {
+            $registry.Close()
+        }
 
         if ($logonToken) {
             Invoke-RevertToSelf -TokenHandle $logonToken
@@ -186,7 +189,7 @@ Function Local:Get-ProcAddress {
 }
 
 Function Local:Invoke-UserImpersonation {
-    Param(
+    Param (
         [Parameter(Mandatory = $True)]
         [Management.Automation.PSCredential]
         [Management.Automation.CredentialAttribute()]
@@ -218,8 +221,7 @@ Function Local:Invoke-UserImpersonation {
 }
 
 Function Local:Invoke-RevertToSelf {
-    [CmdletBinding()]
-    Param(
+    Param (
         [ValidateNotNull()]
         [IntPtr]
         $TokenHandle

@@ -71,44 +71,16 @@ Function Get-CimDirectory {
     )
 
     Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
-        try {
-            if (-not $PSBoundParameters['ComputerName']) {
-                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
-            }
-            elseif ($Credential.Username) {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
-            }
-            else {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
-            }
-        }
-        catch [System.Management.Automation.PSArgumentOutOfRangeException] {
-            Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
-        }
-        catch [Microsoft.Management.Infrastructure.CimException] {
-            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
-                Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
-            }
-            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
-                Write-Verbose "[$ComputerName] Access denied."
-                break
-            }
-            else {
-                Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
-            }
-        }
 
         Function Local:New-ItemObject {
-            [CmdletBinding()]
             Param (
                 [Parameter(Position = 0, Mandatory, ValueFromPipeline)]
                 [object]
@@ -140,7 +112,6 @@ Function Get-CimDirectory {
         }
 
         Function Local:Get-Directory {
-            [CmdletBinding()]
             Param (            
                 [Parameter(Mandatory = $True)]
                 [ValidateNotNullOrEmpty()]
@@ -156,13 +127,10 @@ Function Get-CimDirectory {
                 $Recurse
             )
 
-            if ($path -match '\\$') {
-                # Strip off a trailing slash
-                $path = $path -replace "\\$", ""
-            }
+            $path = $path.TrimEnd("\")
             $cimParams = @{
                 ClassName  = "CIM_LogicalFile"
-                Filter     = "Name='$($path.replace("\", "\\"))'"
+                Filter     = "Name='$($path.Replace("\", "\\"))'"
                 CimSession = $cimSession
                 Verbose    = $false
             }
@@ -196,10 +164,45 @@ Function Get-CimDirectory {
     }
 
     Process {
+        # Init remote session
+        try {
+            if (-not $PSBoundParameters['ComputerName']) {
+                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            elseif ($Credential.Username) {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+            else {
+                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+            }
+        }
+        catch [System.Management.Automation.PSArgumentOutOfRangeException] {
+            Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
+            return
+        }
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
+                return
+            }
+            if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
+                Write-Verbose "[$ComputerName] Access denied."
+                return
+            }
+            else {
+                Write-Verbose "[$ComputerName] Failed to establish CIM session."
+                return
+            }
+        }
+
+        # Process artefact collection
         Get-Directory -Path $Path -Recurse:$Recurse -CimSession $cimSession
     }
 
     End {
-        Remove-CimSession -CimSession $cimSession
+        # End session
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
     }
 }

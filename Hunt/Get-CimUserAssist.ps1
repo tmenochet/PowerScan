@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-CimUserAssist {
+Function Get-CimUserAssist {
 <#
 .SYNOPSIS
     Get user assist execution artefacts from a remote computer.
@@ -54,13 +54,20 @@ function Get-CimUserAssist {
         $Protocol = 'Dcom'
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
+        [uint32] $HKU = 2147483651
+    }
+
+    Process {
+        # Init remote session
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -74,26 +81,24 @@ function Get-CimUserAssist {
         }
         catch [System.Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
-    }
 
-    PROCESS {
-        [uint32]$HKU = 2147483651
+        # Process artefact collection
         $SIDS = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=$HKU; sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
         $key = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\UserAssist'
         foreach ($SID in $SIDs) {
@@ -128,13 +133,16 @@ function Get-CimUserAssist {
         }
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
+    End {
+        # End session
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
     }
 }
 
-function Local:Get-RegistryKey {
-    param(
+Function Local:Get-RegistryKey {
+    Param (
         [Parameter(ValueFromPipelineByPropertyName = $True)]
         [Microsoft.Management.Infrastructure.CimSession[]]
         $CimSession,

@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-CimRegistryKey {
+Function Get-CimRegistryKey {
 <#
 .SYNOPSIS
     Get registry subkeys from a remote host.
@@ -74,13 +74,25 @@ function Get-CimRegistryKey {
         $Recurse
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
+        $trimmedKey = $SubKey.Trim('\')
+        switch ($Hive) {
+            'HKLM' { $HiveVal = [UInt32] 2147483650 }
+            'HKCU' { $HiveVal = [UInt32] 2147483649 }
+            'HKU'  { $HiveVal = [UInt32] 2147483651 }
+        }
+    }
+
+    Process {
+        # Init remote session
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -94,33 +106,24 @@ function Get-CimRegistryKey {
         }
         catch [System.Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
-    }
 
-    PROCESS {
-        switch ($Hive) {
-            'HKLM' { $HiveVal = [UInt32] 2147483650 }
-            'HKCU' { $HiveVal = [UInt32] 2147483649 }
-            'HKU'  { $HiveVal = [UInt32] 2147483651 }
-        }
-
-        $trimmedKey = $SubKey.Trim('\')
-
+        # Process artefact collection
         if ($Hive -eq 'HKCU') {
             $SIDS = Invoke-CimMethod -Class 'StdRegProv' -Name 'EnumKey' -Arguments @{hDefKey=([UInt32] 2147483651); sSubKeyName=''} -CimSession $cimSession -Verbose:$false | Select-Object -ExpandProperty sNames | Where-Object {$_ -match 'S-1-5-21-[\d\-]+$'}
             foreach ($SID in $SIDs) {
@@ -159,7 +162,10 @@ function Get-CimRegistryKey {
         }
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
+    End {
+        # End session
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
     }
 }

@@ -108,7 +108,7 @@ Function Invoke-PowerScan {
     $hostList = New-Object Collections.ArrayList
 
     foreach ($computer in $ComputerList) {
-        if ($computer -Contains '/') {
+        if ($computer.Contains('/')) {
             $hostList.AddRange($(New-IPv4RangeFromCIDR -CIDR $computer))
         }
         else {
@@ -215,12 +215,15 @@ Function Invoke-PowerScan {
         foreach ($computer in $hostList) {
             $params = $ScriptParameters.Clone()
             $params.Add($ComputerArgument, $computer)
-            $output = & $ScriptBlock @params *>&1
-            if (-not $Quiet) {
-                Write-Output $output
-            }
-            if (-not $NoCsv) {
-                Out-CsvFile -InputObject $output -Path $OutputFile -Append
+            & $ScriptBlock @params *>&1 | Where-Object {$_} | ForEach-Object {
+                if (-not $Quiet) {
+                    Write-Output $_
+                }
+                if (-not $NoCsv) {
+                    $outputType = $_.GetType().Name
+                    $_ | Where-Object {($outputType -ne 'VerboseRecord') -and ($outputType -ne 'WarningRecord') -and ($outputType -ne 'ErrorRecord')} `
+                        | Out-CsvFile -Path $OutputFile -Append
+                }
             }
         }
     }
@@ -230,7 +233,9 @@ Function Invoke-PowerScan {
                 Write-Output $_
             }
             if (-not $NoCsv) {
-                Out-CsvFile -InputObject $_ -Path $OutputFile -Append
+                $outputType = $_.GetType().Name
+                $_ | Where-Object {($outputType -ne 'VerboseRecord') -and ($outputType -ne 'WarningRecord') -and ($outputType -ne 'ErrorRecord')} `
+                    | Out-CsvFile -Path $OutputFile -Append
             }
         }
     }
@@ -351,6 +356,9 @@ Function Local:New-ThreadedFunction {
 
         $Jobs = @()
         $Collection = $Collection | Where-Object {$_ -and $_.Trim()}
+        if ($Threads -ge $Collection.Length) {
+            $Threads = $Collection.Length
+        }
         Write-Verbose "[THREAD] Processing $($Collection.Count) elements with $Threads threads."
 
         foreach ($Element in $Collection) {

@@ -1,6 +1,6 @@
 #requires -version 3
 
-function Get-CimLocalAdmin {
+Function Get-CimLocalAdmin {
 <#
 .SYNOPSIS
     Get members of local admin group on a remote computer.
@@ -53,13 +53,19 @@ function Get-CimLocalAdmin {
         $Protocol = 'Dcom'
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
+    }
+
+    Process {
+        # Init remote session
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -73,25 +79,24 @@ function Get-CimLocalAdmin {
         }
         catch [System.Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
-    }
 
-    PROCESS {
+        # Process artefact collection
         Get-CimInstance -ClassName Win32_Group -Filter "SID='S-1-5-32-544'" -CimSession $cimSession -Verbose:$false | Get-CimAssociatedInstance -Association Win32_GroupUser -CimSession $cimSession -Verbose:$false | ForEach-Object {
             $obj = New-Object -TypeName psobject
             $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
@@ -106,7 +111,10 @@ function Get-CimLocalAdmin {
         }
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
+    End {
+        # End session
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
     }
 }

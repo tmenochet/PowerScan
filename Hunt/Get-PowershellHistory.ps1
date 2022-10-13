@@ -59,14 +59,20 @@ function Get-PowershellHistory {
         $Download
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
 
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
         $psOption = New-PSSessionOption -NoMachineProfile
+    }
+
+    Process {
+        # Init remote sessions
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -89,33 +95,32 @@ function Get-PowershellHistory {
         }
         catch [System.Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
         catch [System.Management.Automation.Remoting.PSRemotingTransportException] {
             Write-Verbose "[$ComputerName] Failed to establish PSRemoting session."
-            break
+            return
         }
-    }
 
-    PROCESS {
+        # Process artefact collection
         Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
             $profilePath = $_.LocalPath
             $profileDrive = ($profilePath -split ":").Get(0)
-            $historyDir = ($profilePath -split ":").Get(1) + "\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\" -replace '\\','\\'
+            $historyDir = $(($profilePath -split ":").Get(1) + "\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\").Replace('\','\\')
             $filter  = "Drive='${profileDrive}:' AND Path='$historyDir' AND FileName='ConsoleHost_history' AND Extension='txt'"
             $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter $filter -CimSession $cimSession -Verbose:$false
             if ($file.Name) {
@@ -143,8 +148,11 @@ function Get-PowershellHistory {
         }
     }
 
-    END {
-        Remove-CimSession -CimSession $cimSession
+    End {
+        # End sessions
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
         if ($psSession) {
             Remove-PSSession -Session $psSession
         }
@@ -152,7 +160,6 @@ function Get-PowershellHistory {
 }
 
 function Local:Get-RemoteFile {
-    [CmdletBinding()]
     Param (
         [Parameter(Mandatory = $True)]
         [String]
@@ -179,7 +186,7 @@ function Local:Get-RemoteFile {
         $PSSession
     )
 
-    BEGIN {
+    Begin {
         function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
             $stringBuilder = New-Object System.Text.StringBuilder 
             [System.Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($String)) | % { 
@@ -189,7 +196,7 @@ function Local:Get-RemoteFile {
         }
     }
 
-    PROCESS {
+    Process {
         if ($PSSession) {
             # Download file via PSRemoting
             Copy-Item -Path $Path -Destination $Destination -FromSession $PSSession -Recurse
@@ -210,5 +217,5 @@ function Local:Get-RemoteFile {
         }
     }
 
-    END {}
+    End {}
 }

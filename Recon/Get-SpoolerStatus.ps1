@@ -36,7 +36,7 @@ Function Get-SpoolerStatus {
         $logonToken = Invoke-UserImpersonation -Credential $Credential
     }
 
-    $rprn = New-Object PingCastle.rprn
+    $rprn = New-Object Spooler.rprn
     $status = $rprn.CheckIfTheSpoolerIsActive($ComputerName)
     if ($status -ne $null) {
         $obj = New-Object -TypeName psobject
@@ -83,13 +83,13 @@ Function Local:Invoke-UserImpersonation {
         $UserName = $NetworkCredential.UserName
         Write-Verbose "[UserImpersonation] Executing LogonUser() with user: $($UserDomain)\$($UserName)"
 
-        if (-not [Advapi32]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
+        if (-not [Spooler.Advapi32]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
             $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
             throw "[UserImpersonation] LogonUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
         }
     }
 
-    if (-not [Advapi32]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
+    if (-not [Spooler.Advapi32]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
         throw "[UserImpersonation] ImpersonateLoggedOnUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
     }
     $LogonTokenHandle
@@ -105,9 +105,9 @@ Function Local:Invoke-RevertToSelf {
 
     if ($PSBoundParameters['TokenHandle']) {
         Write-Verbose "[RevertToSelf] Reverting token impersonation and closing LogonUser() token handle"
-        [Kernel32]::CloseHandle($TokenHandle) | Out-Null
+        [Spooler.Kernel32]::CloseHandle($TokenHandle) | Out-Null
     }
-    if (-not [Advapi32]::RevertToSelf()) {
+    if (-not [Spooler.Advapi32]::RevertToSelf()) {
         $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
         throw "[RevertToSelf] RevertToSelf() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
     }
@@ -120,7 +120,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Permissions;
 using System.Text;
-namespace PingCastle
+namespace Spooler
 {
     public class rprn
     {
@@ -825,24 +825,25 @@ namespace PingCastle
             return false;
         }
     }
-}
-public static class Advapi32 {
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool LogonUserA(
-        string lpszUserName, 
-        string lpszDomain,
-        string lpszPassword,
-        int dwLogonType, 
-        int dwLogonProvider,
-        ref IntPtr  phToken
-    );
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
-    [DllImport("advapi32.dll", SetLastError=true)]
-    public static extern bool RevertToSelf();
-}
-public static class Kernel32 {
-    [DllImport("kernel32.dll", SetLastError=true)]
-	public static extern bool CloseHandle(IntPtr hObject);
+
+    public static class Advapi32 {
+        [DllImport("advapi32.dll", SetLastError=true)]
+        public static extern bool LogonUserA(
+            string lpszUserName, 
+            string lpszDomain,
+            string lpszPassword,
+            int dwLogonType, 
+            int dwLogonProvider,
+            ref IntPtr  phToken
+        );
+        [DllImport("advapi32.dll", SetLastError=true)]
+        public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
+        [DllImport("advapi32.dll", SetLastError=true)]
+        public static extern bool RevertToSelf();
+    }
+    public static class Kernel32 {
+        [DllImport("kernel32.dll", SetLastError=true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+    }
 }
 "@

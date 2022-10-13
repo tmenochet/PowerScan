@@ -51,12 +51,16 @@ Function Get-ComScheduledTask {
         $TaskPath
     )
 
-    BEGIN {
+    Begin {
+        # Optionally check host reachability
         if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
             Write-Verbose "[$ComputerName] Host is unreachable."
-            break
+            continue
         }
+    }
 
+    Process {
+        # Init remote session
         try {
             $schedule = New-Object -ComObject ("Schedule.Service")
             if ($Credential.UserName) {
@@ -83,11 +87,10 @@ Function Get-ComScheduledTask {
         }
         catch {
             Write-Verbose "Failed to connect to $ComputerName"
-            break
+            return
         }
-    }
 
-    PROCESS {
+        # Process artefact collection
         if ($TaskPath) {
             $folders = Get-TaskSubFolder -TaskService $schedule -Folder $TaskPath -Recurse
         }
@@ -111,11 +114,11 @@ Function Get-ComScheduledTask {
         }
     }
 
-    END {}
+    End {}
 }
 
 Function Local:Get-TaskSubFolder {
-    param (
+    Param (
         [__ComObject]
         $TaskService,
 

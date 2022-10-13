@@ -35,19 +35,19 @@ Function Get-RegistryHiveDump {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    BEGIN {
+    Begin {
         if ($Credential.UserName) {
             ($context, $logonToken) = Invoke-UserImpersonation -Credential $Credential
         }
     }
 
-    PROCESS {
+    Process {
         if ($result = [RemoteRegistry]::HiveDump($ComputerName)) {
             Write-Output "[$ComputerName] Successful dump`n$result"
         }
     }
 
-    END {
+    End {
         if ($context) {
             $context.Undo()
             $context.Dispose()
@@ -61,8 +61,7 @@ Function Get-RegistryHiveDump {
 # Adapted from PowerView by @harmj0y and @mattifestation
 Function Local:Invoke-UserImpersonation {
     [OutputType([IntPtr])]
-    [CmdletBinding(DefaultParameterSetName = 'Credential')]
-    Param(
+    Param (
         [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
         [Management.Automation.PSCredential]
         [Management.Automation.CredentialAttribute()]
@@ -106,8 +105,7 @@ Function Local:Invoke-UserImpersonation {
 }
 
 Function Local:Invoke-RevertToSelf {
-    [CmdletBinding()]
-    Param(
+    Param (
         [ValidateNotNull()]
         [IntPtr]
         $TokenHandle

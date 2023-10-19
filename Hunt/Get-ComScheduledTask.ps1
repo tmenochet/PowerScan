@@ -182,6 +182,7 @@ Function Local:Get-TaskInfo {
                 'TaskPath' = Split-Path $task.Path
                 'Action' =  $action
                 'UserId' = ([xml]$task.Xml).Task.Principals.Principal.UserID
+                'LogonType' = ([xml]$task.Xml).Task.Principals.Principal.LogonType
                 'Enabled' = $task.Enabled
                 'State' = switch ($task.State) {
                     0 {'Unknown'}

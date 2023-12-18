@@ -39,6 +39,7 @@ Post-exploitation functions require high privileges (typically administrator).
 | Get-CimCredential         | Get credentials from common registry keys and files           |
 | Get-CimDpapiCredential    | Get credentials from Windows Credentials                      |
 | Get-CimDpapiVault         | Get credentials from Windows Vault                            |
+| Get-CimDpapiWifi          | Get credentials from WiFi profiles                            |
 | Get-RegistryHiveDump      | Get secrets from registry hives retrieved via remote registry |
 | Get-ShadowHiveDump        | Get secrets from registry hives retrieved via shadow copy     |
 

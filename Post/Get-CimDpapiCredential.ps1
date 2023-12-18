@@ -254,7 +254,7 @@ Function Get-CimDpapiCredential {
 
                         # Decrypt credential blob using available master keys
                         $credentialBytes = [IO.File]::ReadAllBytes($outputFile)
-                        if ($plaintextBytes = Decrypt-DpapiCredential -BlobBytes $credentialBytes -MasterKeys $masterKeys) {
+                        if ($plaintextBytes = Decrypt-DpapiBlob -BlobBytes $credentialBytes -MasterKeys $masterKeys -GuidOffset 36) {
                             $cred = Get-CredentialBlob -DecBlobBytes $plaintextBytes
                             if ($cred.Password -or $cred.Data) {
                                 $result = New-Object -TypeName PSObject
@@ -767,13 +767,16 @@ Function Local:Decrypt-MasterKey {
     return @{$guidMasterKey=$masterKeySha1Hex}
 }
 
-Function Local:Decrypt-DpapiCredential {
+Function Local:Decrypt-DpapiBlob {
     Param (
         [byte[]]
         $BlobBytes,
 
         [hashtable]
-        $MasterKeys
+        $MasterKeys,
+
+        [int]
+        $GuidOffset = 24
     )
 
     Begin {
@@ -873,7 +876,7 @@ Function Local:Decrypt-DpapiCredential {
     }
 
     Process {
-        $offset = 36
+        $offset = $GuidOffset
         $guidMasterKeyBytes = New-Object byte[] 16
         [Array]::Copy($BlobBytes, $offset, $guidMasterKeyBytes, 0, 16)
         $guidMasterKey = New-Object Guid @(,$guidMasterKeyBytes)
@@ -928,7 +931,7 @@ Function Local:Decrypt-DpapiCredential {
                 return (Decrypt-Blob -Ciphertext $DataBytes -Key $finalKeyBytes -AlgCrypt $algCrypt)
             }
             else {
-                Write-Warning "Could not decrypt credential blob, unsupported hash algorithm: $algHash"
+                Write-Warning "Could not decrypt DPAPI blob, unsupported hash algorithm: $algHash"
             }
         }
     }

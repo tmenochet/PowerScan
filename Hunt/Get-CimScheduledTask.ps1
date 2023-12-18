@@ -144,6 +144,7 @@ Function Get-CimScheduledTask {
                 $obj | Add-Member -MemberType NoteProperty -Name 'TaskPath' -Value $task.TaskPath
                 $obj | Add-Member -MemberType NoteProperty -Name 'Action' -Value $action
                 $obj | Add-Member -MemberType NoteProperty -Name 'UserId' -Value $task.Principal.UserId
+                $obj | Add-Member -MemberType NoteProperty -Name 'LogonType' -Value $task.Principal.LogonType
                 $obj | Add-Member -MemberType NoteProperty -Name 'Enabled' -Value $task.Settings.Enabled
                 $obj | Add-Member -MemberType NoteProperty -Name 'State' -Value $task.State
                 $obj | Add-Member -MemberType NoteProperty -Name 'LastRunTime' -Value $taskInfo.LastRunTime

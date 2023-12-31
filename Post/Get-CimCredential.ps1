@@ -29,7 +29,7 @@ Function Get-CimCredential {
     Specifies the protocol to use, defaults to DCOM.
 
 .PARAMETER DownloadFiles
-    Enables file download.
+    Enables file download, defaults to true.
 
 .EXAMPLE
     PS C:\> Get-CimCredential -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -DownloadFiles
@@ -58,7 +58,7 @@ Function Get-CimCredential {
         $Protocol = 'Dcom',
 
         [Switch]
-        $DownloadFiles
+        $DownloadFiles = $true
     )
 
     Begin {
@@ -1135,9 +1135,12 @@ Function Local:Get-MRNGCredentialFile {
                 }
                 # Extract credentials from file
                 $xml = [Xml] (Get-Content $outputFile)
-                $nsm = New-Object Xml.XmlNamespaceManager($xml.NameTable)
-                $nsm.AddNamespace('mrng', 'http://mremoteng.org')
-                $nodes = $xml.SelectNodes('//mrng:Connections', $nsm)
+                $nodes = $xml.SelectNodes('Connections')
+                if ($nodes.Count -eq 0) {
+                    $nsm = New-Object Xml.XmlNamespaceManager($xml.NameTable)
+                    $nsm.AddNamespace('mrng', 'http://mremoteng.org')
+                    $nodes = $xml.SelectNodes('//mrng:Connections', $nsm)
+                }
                 $creds = New-Object Collections.ArrayList
                 foreach($node in $nodes) {
                     $cred = Get-MRNGCredential $node

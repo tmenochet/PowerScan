@@ -27,6 +27,9 @@ Function Invoke-PowerScan {
 .PARAMETER ComputerFilter
     Specifies a specific role for enumerating target controllers, defaults to 'All'.
 
+.PARAMETER SSL
+    Use SSL connection to LDAP server.
+
 .PARAMETER Credential
     Specifies the account to use for LDAP bind.
 
@@ -82,6 +85,9 @@ Function Invoke-PowerScan {
         [String]
         $ComputerFilter = 'All',
 
+        [Switch]
+        $SSL,
+
         [ValidateNotNullOrEmpty()]
         [Management.Automation.PSCredential]
         [Management.Automation.Credential()]
@@ -131,14 +137,9 @@ Function Invoke-PowerScan {
                 $filter = '(&(objectCategory=computer)(!operatingSystem=*server*)(!userAccountControl:1.2.840.113556.1.4.803:=2))'
             }
         }
-        $searchString = "LDAP://$ComputerDomain/RootDSE"
-        $domainObject = New-Object DirectoryServices.DirectoryEntry($searchString, $null, $null)
-        $defaultNC = $domainObject.defaultNamingContext[0]
-        $adsPath = "LDAP://$ComputerDomain/$defaultNC"
-        $computers = Get-LdapObject -ADSpath $adsPath -Filter $filter -Properties 'dnshostname' -Credential $Credential
-        foreach ($computer in $computers) {
-            if ($computer.dnshostname) {
-                $hostList.Add($($computer.dnshostname).ToString()) | Out-Null
+        Get-LdapObject -Server $ComputerDomain -SSL:$SSL -Filter $filter -Properties 'dnshostname' -Credential $Credential | ForEach-Object {
+            if ($computer = $_.dnshostname) {
+                $hostList.Add($computer.ToString()) | Out-Null
             }
         }
     }
@@ -149,7 +150,7 @@ Function Invoke-PowerScan {
 
         # Get-LapsCredential call definition
         $lapsBlock = [Environment]::NewLine
-        $lapsBlock += 'if ($lapsCreds = Get-LapsCredential -ADSPath "' + $adsPath + '" -Credential $Credential -ComputerName $' + $ComputerArgument + ') {$Credential = $lapsCreds}'
+        $lapsBlock += 'if ($lapsCreds = Get-LapsCredential -Server "' + $ComputerDomain + '" -SSL:$' + $SSL + ' -Credential $Credential -ComputerName $' + $ComputerArgument + ') {$Credential = $lapsCreds}'
         $lapsBlock += [Environment]::NewLine
 
         # Modify script block
@@ -490,14 +491,42 @@ Function Local:Out-CsvFile {
     }
 }
 
-Function Local:Get-LdapObject {
+Function Local:Get-LdapRootDSE {
     Param (
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [String]
-        $ADSpath,
+        $Server = $Env:USERDNSDOMAIN,
+
+        [Switch]
+        $SSL
+    )
+
+    $searchString = "LDAP://$Server/RootDSE"
+    if ($SSL) {
+        # Note that the server certificate has to be trusted
+        $authType = [DirectoryServices.AuthenticationTypes]::SecureSocketsLayer
+    }
+    else {
+        $authType = [DirectoryServices.AuthenticationTypes]::Anonymous
+    }
+    $rootDSE = New-Object DirectoryServices.DirectoryEntry($searchString, $null, $null, $authType)
+    return $rootDSE
+}
+
+Function Local:Get-LdapObject {
+    Param (
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $Server = $Env:USERDNSDOMAIN,
+
+        [Switch]
+        $SSL,
 
         [ValidateNotNullOrEmpty()]
+        [String]
+        $SearchBase,
+
+        [ValidateSet('Base', 'OneLevel', 'Subtree')]
         [String]
         $SearchScope = 'Subtree',
 
@@ -519,26 +548,118 @@ Function Local:Get-LdapObject {
         $Credential = [Management.Automation.PSCredential]::Empty
     )
 
-    if ($Credential.UserName) {
-        $domainObject = New-Object DirectoryServices.DirectoryEntry($ADSpath, $Credential.UserName, $Credential.GetNetworkCredential().Password)
-        $searcher = New-Object DirectoryServices.DirectorySearcher($domainObject)
+    Begin {
+        if ((-not $SearchBase) -or $SSL) {
+            # Get default naming context
+            try {
+                $rootDSE = Get-LdapRootDSE -Server $Server
+                $defaultNC = $rootDSE.defaultNamingContext[0]
+            }
+            catch {
+                Write-Error "Domain controller unreachable"
+                continue
+            }
+            if (-not $SearchBase) {
+                $SearchBase = $defaultNC
+            }
+        }
     }
-    else {
-        $searcher = New-Object DirectoryServices.DirectorySearcher([ADSI]$ADSpath)
-    }
-    $searcher.SearchScope = $SearchScope
-    $searcher.PageSize = $PageSize
-    $searcher.CacheResults = $false
-    $searcher.filter = $Filter
-    $propertiesToLoad = $Properties | ForEach-Object {$_.Split(',')}
-    $searcher.PropertiesToLoad.AddRange($propertiesToLoad) | Out-Null
-    try {
-        $results = $searcher.FindAll()
+
+    Process {
+        try {
+            if ($SSL) {
+                $results = @()
+                $domain = $defaultNC -replace 'DC=' -replace ',','.'
+                [Reflection.Assembly]::LoadWithPartialName("System.DirectoryServices.Protocols") | Out-Null
+                $searcher = New-Object -TypeName System.DirectoryServices.Protocols.LdapConnection -ArgumentList "$($Server):636"
+                $searcher.SessionOptions.SecureSocketLayer = $true
+                $searcher.SessionOptions.VerifyServerCertificate = {$true}
+                $searcher.SessionOptions.DomainName = $domain
+                $searcher.AuthType = [DirectoryServices.Protocols.AuthType]::Negotiate
+                if ($Credential.UserName) {
+                    $searcher.Bind($Credential)
+                }
+                else {
+                    $searcher.Bind()
+                }
+                if ($Properties -ne '*') {
+                    $request = New-Object -TypeName System.DirectoryServices.Protocols.SearchRequest($SearchBase, $Filter, $SearchScope, $Properties)
+                }
+                else {
+                    $request = New-Object -TypeName System.DirectoryServices.Protocols.SearchRequest($SearchBase, $Filter, $SearchScope)
+                }
+                $pageRequestControl = New-Object -TypeName System.DirectoryServices.Protocols.PageResultRequestControl -ArgumentList $PageSize
+                $request.Controls.Add($pageRequestControl) | Out-Null
+                $response = $searcher.SendRequest($request)
+                while ($true) {
+                    $response = $searcher.SendRequest($request)
+                    if ($response.ResultCode -eq 'Success') {
+                        foreach ($entry in $response.Entries) {
+                            $results += $entry
+                        }
+                    }
+                    $pageResponseControl = [DirectoryServices.Protocols.PageResultResponseControl]$response.Controls[0]
+                    if ($pageResponseControl.Cookie.Length -eq 0) {
+                        break
+                    }
+                    $pageRequestControl.Cookie = $pageResponseControl.Cookie
+                }
+                
+            }
+            else {
+                $adsPath = "LDAP://$Server/$SearchBase"
+                if ($Credential.UserName) {
+                    $domainObject = New-Object DirectoryServices.DirectoryEntry($adsPath, $Credential.UserName, $Credential.GetNetworkCredential().Password)
+                    $searcher = New-Object DirectoryServices.DirectorySearcher($domainObject)
+                }
+                else {
+                    $searcher = New-Object DirectoryServices.DirectorySearcher([ADSI]$adsPath)
+                }
+                $searcher.SearchScope = $SearchScope
+                $searcher.PageSize = $PageSize
+                $searcher.CacheResults = $false
+                $searcher.filter = $Filter
+                $propertiesToLoad = $Properties | ForEach-Object {$_.Split(',')}
+                $searcher.PropertiesToLoad.AddRange($propertiesToLoad) | Out-Null
+                $results = $searcher.FindAll()
+            }
+        }
+        catch {
+            Write-Error $_
+            continue
+        }
+
         $results | Where-Object {$_} | ForEach-Object {
+            if (Get-Member -InputObject $_ -name "Attributes" -Membertype Properties) {
+                # Convert DirectoryAttribute object (LDAPS results)
+                $p = @{}
+                foreach ($a in $_.Attributes.Keys | Sort-Object) {
+                    if (($a -eq 'objectsid') -or ($a -eq 'sidhistory') -or ($a -eq 'objectguid') -or ($a -eq 'securityidentifier') -or ($a -eq 'msds-allowedtoactonbehalfofotheridentity') -or ($a -eq 'usercertificate') -or ($a -eq 'ntsecuritydescriptor') -or ($a -eq 'logonhours')) {
+                        $p[$a] = $_.Attributes[$a]
+                    }
+                    elseif ($a -eq 'dnsrecord') {
+                        $p[$a] = ($_.Attributes[$a].GetValues([byte[]]))[0]
+                    }
+                    elseif (($a -eq 'whencreated') -or ($a -eq 'whenchanged')) {
+                        $value = ($_.Attributes[$a].GetValues([byte[]]))[0]
+                        $format = "yyyyMMddHHmmss.fZ"
+                        $p[$a] = [datetime]::ParseExact([Text.Encoding]::UTF8.GetString($value), $format, [cultureinfo]::InvariantCulture)
+                    }
+                    else {
+                        $values = @()
+                        foreach ($v in $_.Attributes[$a].GetValues([byte[]])) {
+                            $values += [Text.Encoding]::UTF8.GetString($v)
+                        }
+                        $p[$a] = $values
+                    }
+                }
+            }
+            else {
+                $p = $_.Properties
+            }
             $objectProperties = @{}
-            $p = $_.Properties
-            $p.PropertyNames | ForEach-Object {
-                if (($_ -ne 'adspath') -And ($p[$_].count -eq 1)) {
+            $p.Keys | ForEach-Object {
+                if (($_ -ne 'adspath') -and ($p[$_].count -eq 1)) {
                     $objectProperties[$_] = $p[$_][0]
                 }
                 elseif ($_ -ne 'adspath') {
@@ -547,20 +668,26 @@ Function Local:Get-LdapObject {
             }
             New-Object -TypeName PSObject -Property ($objectProperties)
         }
-        $results.dispose()
-        $searcher.dispose()
     }
-    catch {
-        Write-Error $_ -ErrorAction Stop
+
+    End {
+        if ($results -and -not $SSL) {
+            $results.dispose()
+        }
+        if ($searcher) {
+            $searcher.dispose()
+        }
     }
 }
 
 Function Local:Get-LapsCredential {
     Param (
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
         [String]
-        $ADSpath,
+        $Server = $Env:USERDNSDOMAIN,
+
+        [Switch]
+        $SSL,
 
         [ValidateNotNullOrEmpty()]
         [Management.Automation.PSCredential]
@@ -582,7 +709,7 @@ Function Local:Get-LapsCredential {
     PROCESS {
         $lapsCredential = $null
         $filter = "(&(sAMAccountType=805306369)(dnshostname=$ComputerName)(ms-MCS-AdmPwd=*))"
-        Get-LdapObject -ADSpath $ADSpath -Filter $filter -Credential $Credential | ForEach-Object {
+        Get-LdapObject -Server $Server -SSL:$SSL -Filter $filter -Properties 'ms-MCS-AdmPwd' -Credential $Credential | ForEach-Object {
             if ($password = $_.'ms-MCS-AdmPwd') {
                 $lapsPassword = ConvertTo-SecureString $password -AsPlainText -Force
                 # Search for local group name for SID S-1-5-32-544

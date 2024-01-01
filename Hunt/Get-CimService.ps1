@@ -14,9 +14,6 @@ Function Get-CimService {
 .PARAMETER ComputerName
     Specifies the host to query.
 
-.PARAMETER Ping
-    Ensures host is up before run.
-
 .PARAMETER Credential
     Specifies the privileged account to use.
 
@@ -25,6 +22,9 @@ Function Get-CimService {
 
 .PARAMETER Protocol
     Specifies the protocol to use, defaults to DCOM.
+
+.PARAMETER Timeout
+    Specifies the duration to wait for a response from the target host (in seconds), defaults to 3.
 
 .PARAMETER ServiceName
     Specifies one or more services by name.
@@ -51,9 +51,6 @@ Function Get-CimService {
         [String]
         $ComputerName = $env:COMPUTERNAME,
 
-        [Switch]
-        $Ping,
-
         [ValidateNotNullOrEmpty()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
@@ -66,6 +63,9 @@ Function Get-CimService {
         [ValidateSet('Dcom', 'Wsman')]
         [String]
         $Protocol = 'Dcom',
+
+        [Int]
+        $Timeout = 3,
 
         [ValidateNotNullOrEmpty()]
         [SupportsWildcards()]
@@ -90,12 +90,6 @@ Function Get-CimService {
     )
 
     Begin {
-        # Optionally check host reachability
-        if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-            Write-Verbose "[$ComputerName] Host is unreachable."
-            continue
-        }
-
         # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
         $filters = New-Object System.Collections.ArrayList
@@ -137,13 +131,13 @@ Function Get-CimService {
         # Init remote session
         try {
             if (-not $PSBoundParameters['ComputerName']) {
-                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false -OperationTimeoutSec $Timeout
             }
             elseif ($Credential.Username) {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false -OperationTimeoutSec $Timeout
             }
             else {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false -OperationTimeoutSec $Timeout
             }
         }
         catch [System.Management.Automation.PSArgumentOutOfRangeException] {

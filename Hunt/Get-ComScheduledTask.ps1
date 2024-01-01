@@ -15,9 +15,6 @@ Function Get-ComScheduledTask {
 .PARAMETER Credential
     Specifies the privileged account to use.
 
-.PARAMETER Ping
-    Ensures host is up before run.
-
 .PARAMETER TaskName
     Specifies one or more scheduled tasks by name.
 
@@ -39,9 +36,6 @@ Function Get-ComScheduledTask {
         [System.Management.Automation.Credential()]
         $Credential = [System.Management.Automation.PSCredential]::Empty,
 
-        [Switch]
-        $Ping,
-
         [ValidateNotNullOrEmpty()]
         [string]
         $TaskName,
@@ -51,70 +45,58 @@ Function Get-ComScheduledTask {
         $TaskPath
     )
 
-    Begin {
-        # Optionally check host reachability
-        if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-            Write-Verbose "[$ComputerName] Host is unreachable."
-            continue
-        }
-    }
-
-    Process {
-        # Init remote session
-        try {
-            $schedule = New-Object -ComObject ("Schedule.Service")
-            if ($Credential.UserName) {
-                $username = $Credential.UserName
-                $password = $Credential.GetNetworkCredential().Password
-                if (([Regex]::Matches($username, '@')).Count) {
-                    $temp = $username.Split('@')
-                    $username = $temp[0]
-                    $domain = $temp[1]
-                }
-                elseif (([Regex]::Matches($username, '\\')).Count) {
-                    $temp = $username.Split('\')
-                    $domain = $temp[0]
-                    $username = $temp[1]
-                }
-                else {
-                    $domain = $null
-                }
-                $schedule.Connect($ComputerName, $username, $domain, $password)
+    # Init remote session
+    try {
+        $schedule = New-Object -ComObject ("Schedule.Service")
+        if ($Credential.UserName) {
+            $username = $Credential.UserName
+            $password = $Credential.GetNetworkCredential().Password
+            if (([Regex]::Matches($username, '@')).Count) {
+                $temp = $username.Split('@')
+                $username = $temp[0]
+                $domain = $temp[1]
+            }
+            elseif (([Regex]::Matches($username, '\\')).Count) {
+                $temp = $username.Split('\')
+                $domain = $temp[0]
+                $username = $temp[1]
             }
             else {
-                $schedule.Connect($ComputerName)
+                $domain = $null
             }
-        }
-        catch {
-            Write-Verbose "Failed to connect to $ComputerName"
-            return
-        }
-
-        # Process artefact collection
-        if ($TaskPath) {
-            $folders = Get-TaskSubFolder -TaskService $schedule -Folder $TaskPath -Recurse
+            $schedule.Connect($ComputerName, $username, $domain, $password)
         }
         else {
-            $folders = Get-TaskSubFolder -TaskService $schedule -Recurse
+            $schedule.Connect($ComputerName)
         }
-        foreach ($folder in $folders) {
-            if ($TaskName) {
-                try {
-                    $schedule.GetFolder($folder).GetTask($TaskName) | ForEach-Object {
-                        Get-TaskInfo $_
-                    }
-                }
-                catch {}
-            }
-            else {
-                $schedule.GetFolder($folder).GetTasks(1) | ForEach-Object {
+    }
+    catch {
+        Write-Verbose "Failed to connect to $ComputerName"
+        return
+    }
+
+    # Process artefact collection
+    if ($TaskPath) {
+        $folders = Get-TaskSubFolder -TaskService $schedule -Folder $TaskPath -Recurse
+    }
+    else {
+        $folders = Get-TaskSubFolder -TaskService $schedule -Recurse
+    }
+    foreach ($folder in $folders) {
+        if ($TaskName) {
+            try {
+                $schedule.GetFolder($folder).GetTask($TaskName) | ForEach-Object {
                     Get-TaskInfo $_
                 }
             }
+            catch {}
+        }
+        else {
+            $schedule.GetFolder($folder).GetTasks(1) | ForEach-Object {
+                Get-TaskInfo $_
+            }
         }
     }
-
-    End {}
 }
 
 Function Local:Get-TaskSubFolder {

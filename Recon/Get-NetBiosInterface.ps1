@@ -13,6 +13,9 @@ Function Get-NetBiosInterface {
 .PARAMETER ComputerName
     Specifies the host to query.
 
+.PARAMETER Timeout
+    Specifies the duration to wait for a response from the target host (in seconds), defaults to 3.
+
 .EXAMPLE
     PS C:\> Get-NetBiosInterface -ComputerName 192.168.38.103
 #>
@@ -21,13 +24,16 @@ Function Get-NetBiosInterface {
     Param (
         [Parameter(Mandatory = $true)]
         [string]
-        $ComputerName
+        $ComputerName,
+
+        [Int]
+        $Timeout = 3
     )
 
     try {
         $client = New-Object System.Net.Sockets.Udpclient
         $client.Connect($ComputerName, 137)
-        $client.Client.ReceiveTimeout = 2500
+        $client.Client.ReceiveTimeout = $($Timeout*1000)
         [byte[]] $bytes = @(0xff, 0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x43, 0x4b, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x00, 0x00, 0x21, 0x00, 0x01)
         $client.Send($bytes, $bytes.length) | Out-Null
         $remoteendpoint = New-Object System.Net.IpEndpoint([Net.IpAddress]::Any, 0)

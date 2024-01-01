@@ -18,9 +18,6 @@ Function Get-CimDpapiCredential {
 .PARAMETER ComputerName
     Specifies the target host.
 
-.PARAMETER Ping
-    Ensures host is up before run.
-
 .PARAMETER Credential
     Specifies the privileged account to use.
 
@@ -29,6 +26,9 @@ Function Get-CimDpapiCredential {
 
 .PARAMETER Protocol
     Specifies the protocol to use, defaults to DCOM.
+
+.PARAMETER Timeout
+    Specifies the duration to wait for a response from the target host (in seconds), defaults to 3.
 
 .PARAMETER BackupKeyFile
     Specifies the DPAPI domain private key file used to decrypt reachable user masterkeys.
@@ -46,9 +46,6 @@ Function Get-CimDpapiCredential {
         [String]
         $ComputerName = $env:COMPUTERNAME,
 
-        [Switch]
-        $Ping,
-
         [ValidateNotNullOrEmpty()]
         [Management.Automation.PSCredential]
         [Management.Automation.Credential()]
@@ -61,6 +58,9 @@ Function Get-CimDpapiCredential {
         [ValidateSet('Dcom', 'Wsman')]
         [String]
         $Protocol = 'Dcom',
+
+        [Int]
+        $Timeout = 3,
 
         [ValidateScript({Test-Path $_ -PathType Leaf})]
         [String]
@@ -77,15 +77,9 @@ Function Get-CimDpapiCredential {
             continue
         }
 
-        # Optionally check host reachability
-        if ($Ping -and -not $(Test-Connection -Count 1 -Quiet -ComputerName $ComputerName)) {
-            Write-Verbose "[$ComputerName] Host is unreachable."
-            continue
-        }
-
         # Init variables
         $cimOption = New-CimSessionOption -Protocol $Protocol
-        $psOption = New-PSSessionOption -NoMachineProfile
+        $psOption = New-PSSessionOption -NoMachineProfile -OperationTimeout $($Timeout*1000)
         $outputDirectory = "$Env:TEMP\$ComputerName"
         $formatDefaultLimit = $global:FormatEnumerationLimit
     }
@@ -97,19 +91,19 @@ Function Get-CimDpapiCredential {
         # Init remote sessions
         try {
             if (-not $PSBoundParameters['ComputerName']) {
-                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -SessionOption $cimOption -ErrorAction Stop -Verbose:$false -OperationTimeoutSec $Timeout
                 if (($Protocol -eq 'Wsman') -and (-not $DomainOnly)) {
                     $psSession = New-PSSession -SessionOption $psOption -ErrorAction Stop -Verbose:$false
                 }
             }
             elseif ($Credential.Username) {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false -OperationTimeoutSec $Timeout
                 if (($Protocol -eq 'Wsman') -and (-not $DomainOnly)) {
                     $psSession = New-PSSession -ComputerName $ComputerName -Credential $Credential -Authentication $Authentication -SessionOption $psOption -ErrorAction Stop -Verbose:$false
                 }
             }
             else {
-                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false
+                $cimSession = New-CimSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $cimOption -ErrorAction Stop -Verbose:$false -OperationTimeoutSec $Timeout
                 if (($Protocol -eq 'Wsman') -and (-not $DomainOnly)) {
                     $psSession = New-PSSession -ComputerName $ComputerName -Authentication $Authentication -SessionOption $psOption -ErrorAction Stop -Verbose:$false
                 }

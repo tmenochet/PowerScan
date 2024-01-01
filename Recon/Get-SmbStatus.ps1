@@ -13,6 +13,9 @@ Function Get-SmbStatus {
 .PARAMETER ComputerName
     Specifies the target host.
 
+.PARAMETER Timeout
+    Specifies the duration to wait for a response from the target host (in seconds), defaults to 3.
+
 .EXAMPLE
     PS C:\> Get-SmbStatus -ComputerName DC.ADATUM.CORP
 #>
@@ -21,11 +24,14 @@ Function Get-SmbStatus {
     Param (
         [ValidateNotNullOrEmpty()]
         [string]
-        $ComputerName = $env:COMPUTERNAME
+        $ComputerName = $env:COMPUTERNAME,
+
+        [Int]
+        $Timeout = 3
     )
 
-    $SMB1 = Get-SmbVersionStatus -ComputerName $ComputerName -SmbVersion 'SMB1'
-    $SMB2 = Get-SmbVersionStatus -ComputerName $ComputerName -SmbVersion 'SMB2'
+    $SMB1 = Get-SmbVersionStatus -ComputerName $ComputerName -SmbVersion 'SMB1' -Timeout $Timeout
+    $SMB2 = Get-SmbVersionStatus -ComputerName $ComputerName -SmbVersion 'SMB2' -Timeout $Timeout
 
     if ($SMB1.ServiceStatus -or $SMB2.ServiceStatus) {
         $obj = New-Object -TypeName psobject
@@ -110,7 +116,9 @@ function Local:Get-SmbVersionStatus {
     Param (
         [string] $ComputerName,
 
-        [string] $SmbVersion = 'SMB2'
+        [string] $SmbVersion = 'SMB2',
+
+        [Int] $Timeout = 3
     )
 
     $serviceStatus = $false
@@ -123,7 +131,7 @@ function Local:Get-SmbVersionStatus {
     [Byte[]] $process_ID_bytes = $process_ID.Split("-") | ForEach-Object {[Char][Convert]::ToInt16($_,16)}
 
     $SMB_relay_socket = New-Object Net.Sockets.TCPClient
-    $SMB_relay_socket.Client.ReceiveTimeout = 60000
+    $SMB_relay_socket.Client.ReceiveTimeout = $($Timeout*1000)
 
     try {
         $SMB_relay_socket.Connect($ComputerName, "445")

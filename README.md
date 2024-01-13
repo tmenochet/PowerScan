@@ -36,6 +36,7 @@ Post-exploitation functions require high privileges (typically administrator).
 
 | Function                     | Description                                                   |
 | ---------------------------- | ------------------------------------------------------------- |
+| Get-CimDpapiBrowser          | Get credentials from web browsers                             |
 | Get-CimDpapiCredential       | Get credentials from Windows Credentials                      |
 | Get-CimDpapiVault            | Get credentials from Windows Vault                            |
 | Get-CimDpapiWifi             | Get credentials from WiFi profiles                            |

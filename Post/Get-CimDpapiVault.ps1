@@ -1182,10 +1182,10 @@ Function Local:Get-VaultCredential ([byte[]] $DecBytes) {
             }
             default {
                 try {
-                    $cred[$id] = [BitConverter]::ToString($entryData).Replace("-", " ")
+                    $cred[$id.ToString()] = [BitConverter]::ToString($entryData).Replace("-", " ")
                 }
                 catch {
-                    $cred[$id] = $entryString
+                    $cred[$id.ToString()] = $entryString
                 }
                 break
             }

